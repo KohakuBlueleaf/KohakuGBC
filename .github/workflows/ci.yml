@@ -31,7 +31,7 @@ jobs:
           WHEEL=$(ls dist/*.whl)
           pip install "${WHEEL}[dev]"
       - name: Tests
-        run: python -m pytest tests -q -m "not gpu and not serial and not weights" -n auto --dist worksteal
+        run: python -m pytest tests -q -m "not gpu and not serial and not weights" -n auto --maxprocesses 8 --dist worksteal
       - name: Serial tests
         run: python -m pytest tests -q -m "serial and not gpu and not weights"
 
@@ -66,9 +66,9 @@ jobs:
       - name: Install
         run: pip install black ruff
       - name: black
-        run: python -m black --check --line-length 100 src tests examples scripts
+        run: python -m black --check --line-length 100 src tests examples scripts configs
       - name: ruff
-        run: python -m ruff check src tests examples scripts
+        run: python -m ruff check src tests examples scripts configs
       - name: Import boundary
         run: python scripts/check_imports.py
       - name: Markdown code blocks

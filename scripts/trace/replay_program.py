@@ -17,21 +17,10 @@ import traceback
 from pathlib import Path
 
 from kohakugbc.graph import digest
+from kohakugbc.io.sources import TraceJobs
 from kohakugbc.nodes.specs.replay import ReplayModels
 from kohakugbc.nodes.specs.trace import Trace
 from kohakugbc.program.reference import run
-
-ROOT_OF_ARM = {"text": "text", "image_text": "image_text", "tags": "tags", "query": "query"}
-CONTROL_NAMES = {"target_min_nodes": "min_nodes", "target_max_nodes": "max_nodes"}
-
-
-def controls_of(arm: str, recorded: dict) -> dict:
-    """The program's controls for an arm: the PoC's ``--controls`` renamed, the root by arm."""
-    out = {"root": ROOT_OF_ARM.get(arm, "text")}
-    for name, value in recorded.items():
-        name = CONTROL_NAMES.get(name, name)
-        out[name] = int(value) if value.lstrip("-").isdigit() else value
-    return out
 
 
 def normalized(graph) -> dict | None:
@@ -72,16 +61,11 @@ def replay_arm(path: Path, jobs: int | None) -> dict:
     trace = Trace(path)
     arm = trace.meta.get("arm", path.name)
     rows = []
-    for k, (key, job) in enumerate(sorted(trace.jobs.items())):
+    for k, item in enumerate(TraceJobs(path)):
         if jobs is not None and k >= jobs:
             break
+        key, inputs, job = item.key, item.inputs, trace.jobs[item.key]
         models = ReplayModels(trace)
-        inputs = {
-            "image": {"path": str(trace.image_path(job)), "key": key},
-            "captions": job["inputs"].get("captions") if ROOT_OF_ARM.get(arm) != "query" else None,
-            "tags": job["inputs"].get("tags"),
-            "controls": controls_of(arm, job["inputs"].get("controls", {})),
-        }
         row = {"job": key}
         start = time.time()
         try:

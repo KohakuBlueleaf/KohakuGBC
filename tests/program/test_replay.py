@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from kohakugbc.graph import digest
+from kohakugbc.io.sources import TraceJobs
 from kohakugbc.nodes import regions, rounds
 from kohakugbc.nodes.specs import detect as det
 from kohakugbc.nodes.specs.replay import ReplayModels
@@ -18,22 +19,10 @@ from kohakugbc.program.reference import run
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "traces"
 ARMS = sorted(p.name for p in FIXTURES.iterdir() if (p / "meta.json").exists())
-ROOTS = {"text": "text", "image_text": "image_text", "tags": "tags", "query": "query"}
-RENAMED = {"target_min_nodes": "min_nodes", "target_max_nodes": "max_nodes"}
 
 
-def inputs_of(arm: str, key: str, trace: Trace) -> dict:
-    job = trace.jobs[key]
-    controls = {"root": ROOTS.get(arm, "text")}
-    for name, value in job["inputs"].get("controls", {}).items():
-        controls[RENAMED.get(name, name)] = int(value) if value.isdigit() else value
-    seeded = controls["root"] != "query"
-    return {
-        "image": {"path": str(trace.image_path(job)), "key": key},
-        "captions": job["inputs"].get("captions") if seeded else None,
-        "tags": job["inputs"].get("tags"),
-        "controls": controls,
-    }
+def inputs_of(arm: str) -> dict:
+    return {item.key: item.inputs for item in TraceJobs(FIXTURES / arm)}
 
 
 def normalized(graph) -> dict | None:
@@ -46,10 +35,11 @@ def normalized(graph) -> dict | None:
 
 def replay(arm: str) -> list[tuple[str, bool, ReplayModels]]:
     trace = Trace(FIXTURES / arm)
+    inputs = inputs_of(arm)
     out = []
     for key, job in sorted(trace.jobs.items()):
         models = ReplayModels(trace)
-        graph = run(inputs_of(arm, key, trace), models)["graph"]
+        graph = run(inputs[key], models)["graph"]
         out.append((key, digest(normalized(graph)) == digest(normalized(job["graph"])), models))
     return out
 

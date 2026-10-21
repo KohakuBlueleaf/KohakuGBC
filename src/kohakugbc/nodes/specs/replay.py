@@ -21,9 +21,11 @@ class ReplayModels:
         self.misses: list[str] = []
         self.mismatches: list[dict] = []
         self.calls = {"chat": 0, "detector": 0, "embedder": 0}
+        self.asked: list[str] = []
 
     def chat(self, request: dict) -> str:
         self.calls["chat"] += 1
+        self.asked.append(request["key"])
         rec = self.trace.vlm.get(request["key"])
         if rec is None:
             self.misses.append(request["key"])

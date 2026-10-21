@@ -26,7 +26,7 @@ The environment is `.venv` (uv). The install builds the extension (maturin), so 
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test --no-default-features
-.venv\Scripts\python.exe -m pytest tests -q -m "not gpu and not serial and not weights" -n auto --dist worksteal
+.venv\Scripts\python.exe -m pytest tests -q -m "not gpu and not serial and not weights" -n auto --maxprocesses 8 --dist worksteal
 .venv\Scripts\python.exe -m pytest tests -q -m "serial and not gpu"
 .venv\Scripts\python.exe -m black --line-length 100 src tests examples scripts
 .venv\Scripts\python.exe -m ruff check src tests examples scripts

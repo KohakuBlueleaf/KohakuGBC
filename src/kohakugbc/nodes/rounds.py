@@ -73,8 +73,17 @@ def needs_more(current: list, records: list, limit: int) -> bool:
 
 @node(outputs=["picked", "current"])
 def take(current: list, records: list, limit: int, controls: dict) -> tuple[list, list]:
-    """One wave: as many regions as the budget still needs (at most ``entity_batch``)."""
-    n = max(1, min(controls["entity_batch"], limit - described(records), len(current)))
+    """One wave: as many regions as the budget still needs, side by side; with ``entity_batch``
+    above 1, at most that many (the regions of one batched request).
+
+    A region that joins a vertex seen before or comes back absent adds no vertex, so the next
+    wave takes more: the regions processed are the shortest prefix of the priority order that
+    fills the budget, as when they are processed one at a time.
+    """
+    need = limit - described(records)
+    if controls["entity_batch"] > 1:
+        need = min(need, controls["entity_batch"])
+    n = max(1, min(need, len(current)))
     return current[:n], current[n:]
 
 
