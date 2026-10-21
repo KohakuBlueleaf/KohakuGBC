@@ -1,0 +1,82 @@
+[build-system]
+requires = ["maturin>=1.9,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "kohakugbc"
+# maturin reads the version from Cargo.toml.
+dynamic = ["version"]
+description = "KohakuGBC: Graph-Based Captioning as a KIR program on the Togeari dataflow machine, with its engines"
+authors = [
+    { name = "Shih-Ying Yeh(KohakuBlueLeaf)", email = "apolloyeh0123@gmail.com" },
+]
+license = { text = "Apache-2.0" }
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["togeari>=0.2.0", "kohakunode>=0.2.2", "pillow>=10", "numpy>=1.26"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Rust",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://kblueleaf.net/"
+Repository = "https://github.com/KohakuBlueleaf/KohakuGBC"
+
+[project.optional-dependencies]
+# The VLM over HTTP (the api entry)
+api = ["togeari[web]>=0.2.0", "httpx>=0.27"]
+# The vision models (detector, embedder) on Togeari's torch engine
+torch = ["togeari[torch]>=0.2.0", "torch>=2.4", "transformers>=4.57"]
+# The in-process VLM (Linux)
+vllm = ["vllm>=0.11"]
+parquet = ["pyarrow>=15"]
+dev = [
+    "maturin>=1.9,<2.0",
+    "pytest>=8",
+    "pytest-xdist>=3.6",
+    "ruff",
+    "black",
+    "httpx>=0.27",
+    "togeari[web]>=0.2.0",
+]
+
+[project.scripts]
+gbc = "kohakugbc.cli.main:main"
+
+[tool.maturin]
+# Python source is in src/kohakugbc; the crate is src/kohakugbc-rust (Cargo.toml)
+python-source = "src"
+module-name = "kohakugbc._rs"
+include = ["src/kohakugbc/**/*.kir", "src/kohakugbc/**/*.json", "src/kohakugbc/**/*.txt"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "BLE", "UP", "SIM", "PERF", "RUF100", "PLC0415"]
+ignore = ["B905", "PERF203"]
+
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "gpu: needs a CUDA device; `-m \"not gpu\"` runs the CPU-only suite",
+    "serial: asserts a wall-clock bound or a scheduling outcome; runs in its own pass without pytest-xdist (`-m serial`)",
+    "weights: loads real model weights (downloads on first use)",
+]
