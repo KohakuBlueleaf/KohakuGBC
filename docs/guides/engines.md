@@ -37,6 +37,37 @@ engines = {
 Every request carries `X-GBC-Request`, the SHA-256 of what it asks, so a cache or a log in
 front of the server can tell repeated questions apart.
 
+## The VLM in-process (vLLM)
+
+vLLM's engine in the machine's process, one unit per `AsyncLLM` (Linux; `pip install
+"kohakugbc[vllm]"`):
+
+```python
+engines = {
+    "vlm": {
+        "entry": "vllm",
+        "model": "Qwen/Qwen3.5-4B",
+        "units": 2,
+        "devices": [[0], [1]],
+        "gpu_memory_utilization": 0.5,
+        "max_num_seqs": 64,
+    }
+}
+```
+
+| Setting | Meaning |
+|---|---|
+| `model` | a checkpoint name or folder |
+| `units`, `devices` | units, and per unit the CUDA devices it uses (several: tensor parallel over them) |
+| `gpu_memory_utilization`, `max_model_len`, `max_num_seqs`, `dtype` | vLLM's own (0.5, 16384, 64, `bfloat16`) |
+| `capacity` | requests in flight per unit (twice `max_num_seqs`) |
+| `engine_args`, `sampling` | any other `AsyncEngineArgs` field; extra `SamplingParams` fields |
+
+The unit builds the prompt with the model's chat template (thinking off), sends the pictures as
+the API path decodes them, and constrains the reply to the request's JSON schema; a cancelled
+request is aborted in vLLM. A script that builds a machine with this entry needs an
+`if __name__ == "__main__":` guard: vLLM starts its engine core by spawning a process.
+
 ## Replay
 
 Pseudo engines that answer from a recorded trace (`runs/traces/...`), for running the program

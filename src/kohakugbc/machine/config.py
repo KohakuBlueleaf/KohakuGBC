@@ -16,6 +16,8 @@ DEFAULTS = {
         "vlm_waiting": 64,
         "max_jobs": 512,
         "window": 64,
+        # A unit's start: loading a model's weights and capturing its graphs can take minutes
+        "start_timeout_s": 600,
         "record": None,
         "store": None,
         "report": None,

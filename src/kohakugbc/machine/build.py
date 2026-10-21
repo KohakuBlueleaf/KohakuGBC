@@ -140,6 +140,7 @@ def build_parts(*layers) -> Parts:
         store=store,
         plugins=plugins,
         record=m.get("record"),
+        start_timeout_s=m["start_timeout_s"],
         window=m["window"],
         **m.get("knobs", {}),
     )

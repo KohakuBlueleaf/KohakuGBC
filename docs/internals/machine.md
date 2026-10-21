@@ -12,7 +12,7 @@ Layers are dicts or Python files whose lower-case module-level names form one
 | Name | Holds |
 |---|---|
 | `engines` | per slot (`vlm`, `detect`, `embed`, `cpu`): `entry` and the entry's settings |
-| `machine` | `vlm_waiting`, `max_jobs` (admission), `window`, `record`, `store` (`"memory"`), `report` (a RunReport folder), `knobs` (other Togeari knobs) |
+| `machine` | `vlm_waiting`, `max_jobs` (admission), `window`, `start_timeout_s` (a unit's start, 600), `record`, `store` (`"memory"`), `report` (a RunReport folder), `knobs` (other Togeari knobs) |
 | `source` | `{"kind": "folder" \| "jsonl" \| "trace", "path": ...}` |
 | `sink` | `{"kind": "memory"}` or `{"kind": "graphs", "path": ...}` |
 | `controls` | defaults under every job's own controls |
@@ -26,7 +26,7 @@ its request) or a `call` (the units run the node's Python function, which calls 
 
 | Slot | Node | Entries |
 |---|---|---|
-| `vlm` | `chat` | `api` ([guide](../guides/engines.md)), `replay`, `remote` |
+| `vlm` | `chat` | `api`, `vllm` ([guide](../guides/engines.md)), `replay`, `remote` |
 | `detect` | `detector` | `replay`, `remote` |
 | `embed` | `embedder` | `replay`, `remote` |
 | `cpu` | heavy plain nodes | `python` (Togeari's Python workers, threads or processes), `remote` |
