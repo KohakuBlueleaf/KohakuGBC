@@ -30,7 +30,7 @@
     (mode)switch("query"=>`by_query`, "text"=>`by_text`, "image_text"=>`by_image_text`, _=>`by_tags`)
     by_query:
         @hint lane="cpu"
-        (image, None)crop(patch)
+        (image, None, controls)picture(patch)
         (image, patch, controls)image_query_request(request)
         (request)ask(answer)
         (image, answer)image_root(root)
@@ -40,7 +40,7 @@
         (image, captions, tags, reply, controls)seeded_root(root)
     by_image_text:
         @hint lane="cpu"
-        (image, None)crop(patch)
+        (image, None, controls)picture(patch)
         (image, captions, tags, patch, controls)elements_request(request)
         (request)ask(reply)
         (image, captions, tags, reply, controls)seeded_root(root)
@@ -68,7 +68,7 @@
             (region, replies)batch_reply(reply)
         own:
             @hint lane="cpu"
-            (image, region)crop(patch)
+            (image, region, controls)picture(patch)
             (image, region, patch, controls)entity_request(request)
             (request)ask(answer)
             (answer)model_reply(reply)
@@ -87,7 +87,7 @@
     (several)branch(`one_request`, `own_requests`)
     one_request:
         @hint lane="cpu"
-        (image, regions)crop_many(patches)
+        (image, regions, controls)pictures(patches)
         (image, regions, patches)entity_batch_request(request)
         (request)ask(reply)
         (regions, reply)batch_replies(replies)
@@ -120,7 +120,7 @@
 @def (image, records, controls)coverage(records, found, grew):
     found = []
     @hint lane="cpu"
-    (image, None)crop(patch)
+    (image, None, controls)picture(patch)
     (image, records, patch, controls)coverage_request(request)
     (request)ask(reply)
     (records, reply, controls)coverage_root(records, entities, grew)

@@ -1,8 +1,9 @@
 """VLM requests: what each model node asks, as a protocol-neutral request.
 
 A request is ``{"key", "system", "query", "images", "schema", "max_tokens", "temperature"}``:
-``images`` is a list of ``[label, patch]`` (a label text before the image, or None; the patch an
-RGB array), ``schema`` the name of a JSON schema in ``specs/schemas``. Protocols turn it into a
+``images`` is a list of ``[label, picture]`` (a label text before the image, or None; the
+picture ``{"jpeg", "size"}`` as ``kohakugbc.nodes.images.encode`` makes it, None for an empty
+crop), ``schema`` the name of a JSON schema in ``specs/schemas``. Protocols turn it into a
 server's request (``kohakugbc.engines.vlm``). The prompts are the PoC's JSON prompt sets
 (``specs/prompts``): ``json``, ``json_leafcap`` (entity replies that caption their features),
 ``json_batch``, ``coverage``, ``seeded``.

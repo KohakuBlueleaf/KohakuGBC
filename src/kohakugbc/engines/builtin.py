@@ -2,5 +2,6 @@
 
 from kohakugbc.engines import host, python
 from kohakugbc.engines.replay import entries as replay
+from kohakugbc.engines.vlm import api
 
-MODULES = (host, python, replay)
+MODULES = (api, host, python, replay)

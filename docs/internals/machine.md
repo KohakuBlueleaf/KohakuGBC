@@ -26,7 +26,7 @@ its request) or a `call` (the units run the node's Python function, which calls 
 
 | Slot | Node | Entries |
 |---|---|---|
-| `vlm` | `chat` | `replay`, `remote` |
+| `vlm` | `chat` | `api` ([guide](../guides/engines.md)), `replay`, `remote` |
 | `detect` | `detector` | `replay`, `remote` |
 | `embed` | `embedder` | `replay`, `remote` |
 | `cpu` | heavy plain nodes | `python` (Togeari's Python workers, threads or processes), `remote` |

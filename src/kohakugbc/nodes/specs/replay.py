@@ -33,6 +33,16 @@ class ReplayModels:
             self.misses.append(request["key"])
             raise ReplayMiss(request["key"])
         recorded = rec["request"]
+
+        # The picture sizes sent: the PoC logged one [w, h] alone, several as a list
+        sent = recorded.get("images")
+        if sent is not None and rec.get("error") is None:
+            sent = [sent] if sent and isinstance(sent[0], int) else sent
+            asked = [p["size"] for _, p in request["images"] if p is not None]
+            if asked != sent:
+                self.mismatches.append(
+                    {"key": request["key"], "field": "images", "recorded": sent, "asked": asked}
+                )
         for field in ("query", "system"):
             if field in recorded and recorded[field] != request[field]:
                 self.mismatches.append(

@@ -25,7 +25,8 @@ ENTRY_MODULES = builtin.MODULES
 CPU_NODES = (
     "open_image",
     "crop",
-    "crop_many",
+    "picture",
+    "pictures",
     "image_root",
     "seeded_root",
     "detected",

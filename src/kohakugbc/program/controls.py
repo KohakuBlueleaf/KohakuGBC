@@ -28,6 +28,8 @@ DEFAULTS = {
     # Which relational questions, and where they are asked
     "relational": "both",
     "relate": "end",
+    # Pictures the VLM is sent: the longer side scaled down to this many pixels
+    "max_side": 1568,
     # Same-object check: embedding similarity at least this
     "same_threshold": 0.725,
     "overlap_threshold": 0.85,

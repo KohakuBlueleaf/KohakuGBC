@@ -11,7 +11,7 @@ import re
 from kohakugbc.graph import to_text
 from kohakugbc.graph.reference import resolve
 from kohakugbc.nodes import boxes as bx
-from kohakugbc.nodes.images import cut
+from kohakugbc.nodes.images import cut, encode
 from kohakugbc.nodes.registry import node
 from kohakugbc.nodes.specs import chat as specs
 from kohakugbc.nodes.specs import composition as comp
@@ -144,7 +144,7 @@ def relational_request(image: dict, q: dict, controls: dict) -> dict:
     crop of its parts' union, its parts boxed and numbered, with tree hints."""
     if q["kind"] == "relation":
         count = draw.rng("relation-count", image["key"], q["vertex"]).randint(2, len(q["entities"]))
-        patch = cut(image, q["box"])
+        patch = encode(cut(image, q["box"]), controls["max_side"])
         return specs.relation(
             image["key"], q["vertex"], q["box"], q["entities"], count, patch, controls
         )
@@ -155,7 +155,7 @@ def relational_request(image: dict, q: dict, controls: dict) -> dict:
     rng = draw.rng("composition", image["key"], first)
     texts = [p[2] for p in q["parts"]]
     hints, node_texts = comp.hints(texts, q["boxes"], rel, rng)
-    patch = comp.annotate(cut(image, union), rel)
+    patch = encode(comp.annotate(cut(image, union), rel), controls["max_side"])
     parts = [[p[0], p[2]] for p in q["parts"]]
     request = specs.composition(
         image["key"],
