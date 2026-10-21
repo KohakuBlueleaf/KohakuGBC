@@ -1,0 +1,5 @@
+Detailed caption: {description}
+
+Brief caption: {brief}
+{tag_line}{image_line}
+List the top-level objects as JSON.

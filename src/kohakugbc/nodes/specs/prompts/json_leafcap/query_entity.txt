@@ -1,0 +1,1 @@
+Please assess the image focusing on '{}' and answer as a JSON object. State whether it is present. If present, describe its key features in a detailed caption with at most 50 words, then list a few notable features with their multiplicity, preferring to list some. Importantly, do not include '{}' itself in features. Instead, you should break it down.

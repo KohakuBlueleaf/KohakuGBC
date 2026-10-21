@@ -1,0 +1,15 @@
+{"a": "female characters", "b": "background", "same": false, "score": 0.42316776514053345}
+{"a": "glass panel", "b": "windows", "same": false, "score": 0.5398687124252319}
+{"a": "black bow tie", "b": "bow", "same": true, "score": 0.7375617027282715}
+{"a": "hair", "b": "hair", "same": true, "score": 0.9999998807907104}
+{"a": "bow tie", "b": "bow", "same": true, "score": 0.8298718333244324}
+{"a": "ribbons", "b": "ribbon", "same": true, "score": 0.934964120388031}
+{"a": "red sash", "b": "ribbons", "same": false, "score": 0.619175374507904}
+{"a": "motorcycle", "b": "background", "same": false, "score": 0.5469053983688354}
+{"a": "sneakers", "b": "shoes", "same": true, "score": 0.8883593082427979}
+{"a": "sneakers", "b": "shoes", "same": true, "score": 0.8883593082427979}
+{"a": "shoes", "b": "shoes", "same": true, "score": 1.0000001192092896}
+{"a": "shoes", "b": "shoes", "same": true, "score": 1.0000001192092896}
+{"a": "bow", "b": "fabric samples", "same": false, "score": 0.4638546407222748}
+{"a": "lace detailing", "b": "bow", "same": false, "score": 0.4741061329841614}
+{"a": "laces", "b": "laces", "same": true, "score": 1.0}

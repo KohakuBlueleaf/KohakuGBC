@@ -32,7 +32,7 @@ RULES = {
 # Third-party packages each part may use; torch, transformers and vllm only in engines
 EXTRAS = {
     "kohakugbc.program": ("PIL", "numpy"),
-    "kohakugbc.nodes": ("PIL", "numpy"),
+    "kohakugbc.nodes": ("PIL", "numpy", "scipy", "hbutils", "supervision"),
     "kohakugbc.graph": ("PIL", "numpy", "pyarrow"),
     "kohakugbc.engines": ("PIL", "numpy", "httpx", "torch", "transformers", "vllm"),
     "kohakugbc.io": ("PIL", "numpy", "pyarrow"),

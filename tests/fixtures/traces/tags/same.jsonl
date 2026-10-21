@@ -1,0 +1,5 @@
+{"a": "ribbon", "b": "bow", "same": false, "score": 0.7039059400558472}
+{"a": "ribbon", "b": "red ribbon", "same": true, "score": 0.8100895881652832}
+{"a": "boots", "b": "boots", "same": true, "score": 1.0}
+{"a": "bow", "b": "bow", "same": true, "score": 1.000000238418579}
+{"a": "bow", "b": "bow", "same": true, "score": 1.000000238418579}

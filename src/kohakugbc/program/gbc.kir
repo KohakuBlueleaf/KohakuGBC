@@ -1,0 +1,187 @@
+## Graph-Based Captioning of one image: image, existing captions and tags, controls in; the GBC
+## graph and its counts out.
+@use "gbc"
+
+## Ask the VLM; a request that fails answers with an empty reply, as GBC reads one.
+@def (request)ask(reply):
+    @try:
+        @hint lane="vlm"
+        (request)chat(reply)
+    @except err:
+        (err)no_reply(reply)
+
+## The regions detection finds for the named entities inside the parent's box, one level down.
+@def (image, parent, entities, depth, cap, controls)detect(found):
+    found = []
+    (image, parent, entities, cap)detect_request(request)
+    (request)has_texts(go)
+    (go)branch(`run`, `skip`)
+    run:
+        @hint lane="cpu"
+        (image, parent)crop(patch)
+        @hint lane="detect"
+        (patch, request)detector(raw)
+        (raw, patch, request, parent, entities, depth, controls)detected(found)
+    skip:
+
+## The image vertex and the regions of the elements it names.
+@def (image, captions, tags, controls)root(records, found):
+    (controls, captions, tags)root_mode(mode)
+    (mode)switch("query"=>`by_query`, "text"=>`by_text`, "image_text"=>`by_image_text`, _=>`by_tags`)
+    by_query:
+        @hint lane="cpu"
+        (image, None)crop(patch)
+        (image, patch, controls)image_query_request(request)
+        (request)ask(answer)
+        (image, answer)image_root(root)
+    by_text:
+        (image, captions, tags, None, controls)elements_request(request)
+        (request)ask(reply)
+        (image, captions, tags, reply, controls)seeded_root(root)
+    by_image_text:
+        @hint lane="cpu"
+        (image, None)crop(patch)
+        (image, captions, tags, patch, controls)elements_request(request)
+        (request)ask(reply)
+        (image, captions, tags, reply, controls)seeded_root(root)
+    by_tags:
+        (image, captions, tags, "", controls)seeded_root(root)
+    (root)first_record(records)
+    (root, controls)root_entities(entities, depth, cap)
+    (image, root, entities, depth, cap, controls)detect(found)
+
+## One region: it joins a vertex seen before, or it is described and its parts are detected.
+@def (image, region, replies, seen, controls)expand(record, found, seen, target):
+    record = None
+    found = []
+    (region)name_of(text)
+    @hint lane="embed"
+    (text)embedder(vec)
+    (seen, region, vec, controls)register(seen, is_new, target)
+    (is_new)branch(`new`, `known`)
+    new:
+        (region, replies)answer_from(how)
+        (how)switch("parent"=>`from_parent`, "batch"=>`from_batch`, _=>`own`)
+        from_parent:
+            (region)parent_reply(reply)
+        from_batch:
+            (region, replies)batch_reply(reply)
+        own:
+            @hint lane="cpu"
+            (image, region)crop(patch)
+            (image, region, patch, controls)entity_request(request)
+            (request)ask(answer)
+            (answer)model_reply(reply)
+        (region, reply)entity_record(record)
+        (record, region, controls)parts(entities, depth, cap, look)
+        (look)branch(`below`, `leaf`)
+        below:
+            (image, record, entities, depth, cap, controls)detect(found)
+        leaf:
+    known:
+
+## Several regions in one request when controls.entity_batch is above 1.
+@def (image, picked, controls)prefill(replies):
+    replies = None
+    (picked, controls)batch_regions(regions, several)
+    (several)branch(`one_request`, `own_requests`)
+    one_request:
+        @hint lane="cpu"
+        (image, regions)crop_many(patches)
+        (image, regions, patches)entity_batch_request(request)
+        (request)ask(reply)
+        (regions, reply)batch_replies(replies)
+    own_requests:
+
+## One wave: as many regions as the round still needs, side by side.
+@def (image, current, records, seen, frontier, limit, controls)wave(current, records, seen, frontier):
+    (current, records, limit, controls)take(picked, current)
+    (image, picked, controls)prefill(replies)
+    (picked)each(region, `one`)
+    one:
+        (image, region, replies, seen, controls)expand(record, found, seen, target)
+        (records, region, record, target)add_result(records)
+        (frontier, found)push(frontier)
+
+## One round: the frontier as it was when the round began, in waves until the budget is met.
+@def (image, frontier, records, seen, controls)depth_round(frontier, records, seen):
+    (frontier, records, controls)round_start(current, frontier, limit)
+    ()jump(`waves`)
+    waves:
+        (current, records, limit)needs_more(more)
+        (more)branch(`again`, `enough`)
+        again:
+            (image, current, records, seen, frontier, limit, controls)wave(current, records, seen, frontier)
+            ()jump(`waves`)
+        enough:
+    (frontier, current)requeue(frontier)
+
+## One more root sentence naming objects not covered yet, and their regions.
+@def (image, records, controls)coverage(records, found, grew):
+    found = []
+    @hint lane="cpu"
+    (image, None)crop(patch)
+    (image, records, patch, controls)coverage_request(request)
+    (request)ask(reply)
+    (records, reply, controls)coverage_root(records, entities, grew)
+    (grew)branch(`detect_new`, `nothing`)
+    detect_new:
+        (records)root_of(root)
+        (image, root, entities, 1, None, controls)detect(found)
+    nothing:
+
+## Relation and composition questions over the entities found, and their answers.
+@def (image, records, controls)relate(records):
+    (records)drop_relational(records)
+    @hint lane="cpu"
+    (image, records, controls)relational_queries(queries)
+    (queries)each(q, `one`)
+    one:
+        @hint lane="cpu"
+        (image, q, controls)relational_request(request)
+        (request)ask(reply)
+        (q, request, reply)relational_record(record)
+        (records, record)attach(records)
+
+## The job: one image in, one GBC graph out.
+@def (image, captions = None, tags = None, controls = None)gbc(graph, stats):
+    (controls)with_defaults(controls)
+    @hint lane="cpu"
+    (image)open_image(image)
+    (image, captions, tags, controls)root(records, found)
+    ()empty_seen(seen)
+    ()empty_frontier(frontier)
+    (frontier, found)push(frontier)
+    rounds = 0
+    breadth = 0
+    stop = False
+    (controls)relate_mode(when)
+    ()jump(`decide`)
+    decide:
+        (records, frontier, rounds, breadth, stop, controls)next_step(step)
+        (step)switch("depth"=>`depth`, "breadth"=>`widen`, _=>`done`)
+        widen:
+            (breadth, 1)add(breadth)
+            (image, records, controls)coverage(records, found, grew)
+            (grew)branch(`grown`, `empty`)
+            grown:
+                (frontier, found)push(frontier)
+                ()jump(`depth`)
+            empty:
+                stop = True
+                ()jump(`decide`)
+        depth:
+            (image, frontier, records, seen, controls)depth_round(frontier, records, seen)
+            (rounds, 1)add(rounds)
+            (when)switch("every_round"=>`relate_now`, _=>`relate_later`)
+            relate_now:
+                (image, records, controls)relate(records)
+            relate_later:
+            ()jump(`decide`)
+        done:
+    (when)switch("end"=>`relate_end`, _=>`related`)
+    relate_end:
+        (image, records, controls)relate(records)
+    related:
+    @hint lane="cpu"
+    (image, records, controls)to_gbc(graph, stats)

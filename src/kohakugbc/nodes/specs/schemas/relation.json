@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "relations": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {"type": "string", "minLength": 1, "maxLength": 400}
+    }
+  },
+  "required": ["relations"]
+}

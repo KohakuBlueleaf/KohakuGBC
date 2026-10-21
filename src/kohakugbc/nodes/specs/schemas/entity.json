@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "properties": {
+    "present": {"type": "boolean"},
+    "detailed_caption": {"type": "string", "maxLength": 800},
+    "features": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 60},
+          "multiplicity": {"enum": ["single", "multiple"]}
+        },
+        "required": ["name", "multiplicity"]
+      }
+    }
+  },
+  "required": ["present", "detailed_caption", "features"]
+}

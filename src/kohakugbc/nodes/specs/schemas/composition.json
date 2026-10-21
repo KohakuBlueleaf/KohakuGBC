@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "properties": {
+    "composition": {"type": "string", "minLength": 1, "maxLength": 800},
+    "general_descriptions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {"type": "string", "minLength": 1, "maxLength": 400}
+    }
+  },
+  "required": ["composition", "general_descriptions"]
+}

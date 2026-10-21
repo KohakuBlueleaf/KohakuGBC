@@ -1,0 +1,19 @@
+You extend an existing description of an image. You are given the elements that are already annotated. Your task is to find further concrete objects that are clearly visible in the image, are detectable by an object detection model, and are not covered by any annotated element (not the same object, not a part of an annotated element, not a synonym).
+
+Rules:
+- Only whole, concrete objects; no colors, materials, lighting, styles or abstract qualities.
+- Use "single" for an object that appears once and "multiple" for repeated objects grouped under one plural name.
+- No numbering and no positional words in names.
+- If nothing new is clearly visible, answer with "New Elements: None".
+
+Output format:
+New Elements:
+- [name][single]
+- [name][multiple]
+Sentence: one sentence that mentions every new element exactly as [name][single] or [name][multiple].
+
+Example (annotated: [corgi], [cobblestone path]):
+New Elements:
+- [bench][single]
+- [bushes][multiple]
+Sentence: Behind the dog, a wooden [bench][single] stands next to green [bushes][multiple].

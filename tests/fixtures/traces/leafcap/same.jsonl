@@ -1,0 +1,14 @@
+{"a": "ribbon", "b": "bow tie", "same": false, "score": 0.7109524011611938}
+{"a": "ribbon", "b": "bow", "same": false, "score": 0.7039059400558472}
+{"a": "text", "b": "text", "same": true, "score": 1.0}
+{"a": "hair", "b": "woman", "same": false, "score": 0.6227734088897705}
+{"a": "website address", "b": "text", "same": false, "score": 0.5632189512252808}
+{"a": "hair", "b": "hair", "same": true, "score": 0.9999998807907104}
+{"a": "lettering", "b": "text", "same": false, "score": 0.6423832178115845}
+{"a": "exhaust pipe", "b": "exhaust pipe", "same": true, "score": 1.000000238418579}
+{"a": "exhaust pipe", "b": "exhaust pipe", "same": true, "score": 1.000000238418579}
+{"a": "sneakers", "b": "shoes", "same": true, "score": 0.8883593082427979}
+{"a": "sneakers", "b": "shoes", "same": true, "score": 0.8883593082427979}
+{"a": "shoes", "b": "shoes", "same": true, "score": 1.0000001192092896}
+{"a": "shoes", "b": "shoes", "same": true, "score": 1.0000001192092896}
+{"a": "laces", "b": "laces", "same": true, "score": 1.0}

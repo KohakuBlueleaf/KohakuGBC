@@ -1,0 +1,23 @@
+{"a": "glass panel", "b": "glass panels", "same": true, "score": 0.9710080623626709}
+{"a": "skirt", "b": "skirt", "same": true, "score": 1.000000238418579}
+{"a": "signboard", "b": "sign", "same": true, "score": 0.8438835144042969}
+{"a": "hair", "b": "woman", "same": false, "score": 0.6227734088897705}
+{"a": "socks", "b": "socks", "same": true, "score": 0.9999999403953552}
+{"a": "skirt", "b": "skirt", "same": true, "score": 1.000000238418579}
+{"a": "cartoon characters", "b": "character", "same": true, "score": 0.7671204805374146}
+{"a": "cartoon characters", "b": "character", "same": true, "score": 0.7671204805374146}
+{"a": "cartoon characters", "b": "character", "same": true, "score": 0.7671204805374146}
+{"a": "cartoon characters", "b": "character", "same": true, "score": 0.7671204805374146}
+{"a": "cartoon characters", "b": "character", "same": true, "score": 0.7671204805374146}
+{"a": "cartoon characters", "b": "character", "same": true, "score": 0.7671204805374146}
+{"a": "sash", "b": "ribbon", "same": false, "score": 0.6573728919029236}
+{"a": "sash", "b": "red ribbon", "same": false, "score": 0.5993087887763977}
+{"a": "lettering", "b": "text", "same": false, "score": 0.6423832178115845}
+{"a": "gloves", "b": "gloves", "same": true, "score": 1.0000001192092896}
+{"a": "ribbon", "b": "star", "same": false, "score": 0.5755475163459778}
+{"a": "ribbon", "b": "star accessory", "same": false, "score": 0.563054084777832}
+{"a": "sneakers", "b": "shoes", "same": true, "score": 0.8883593082427979}
+{"a": "sneakers", "b": "shoes", "same": true, "score": 0.8883593082427979}
+{"a": "shoes", "b": "shoes", "same": true, "score": 1.0000001192092896}
+{"a": "hair", "b": "hair", "same": true, "score": 0.9999998807907104}
+{"a": "shoes", "b": "shoes", "same": true, "score": 1.0000001192092896}

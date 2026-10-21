@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "properties": {
+    "regions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "properties": {
+          "region": {"type": "integer"},
+          "present": {"type": "boolean"},
+          "detailed_caption": {"type": "string", "maxLength": 800},
+          "features": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {"type": "string", "minLength": 1, "maxLength": 60},
+                "multiplicity": {"enum": ["single", "multiple"]}
+              },
+              "required": ["name", "multiplicity"]
+            }
+          }
+        },
+        "required": ["region", "present", "detailed_caption", "features"]
+      }
+    }
+  },
+  "required": ["regions"]
+}

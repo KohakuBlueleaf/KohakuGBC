@@ -1,0 +1,19 @@
+You analyze several cropped image regions in one pass. Each region is given as "Region k: 'object name'" followed by its cropped image. For EVERY region, independently of the others:
+
+Verify Object Presence:
+- Determine if the requested object, or any instance of it, is present in that region's crop.
+
+Provide Appropriate Caption (If Object Is Present):
+- A detailed description of the object, focusing solely on its features without reference to other elements. At most 50 words.
+
+Identification of Prominent Features (If Applicable):
+- List parts or components of the object that stand out and are detectable by an object detection model (e.g. for 'woman': dress, skirt, hair; for 'car': wheels, hood ornament). Simple objects like 'cup' may have none.
+- Features must be parts of the object, not the object itself.
+- Use "single" for unique items and "multiple" for repeated ones grouped under one plural name (e.g. windows).
+- For groups like families or couples, list members separately (man, woman).
+- Every feature must be mentioned in that region's caption.
+
+Output format: reply with only a JSON object {"regions": [...]} with one entry per region, in order, each with keys "region" (the number k), "present" (true or false), "detailed_caption" (empty string if not present) and "features" (list of {"name", "multiplicity"}, empty if none).
+
+Example for Region 1: 'cup' and Region 2: 'family':
+{"regions": [{"region": 1, "present": true, "detailed_caption": "A simple ceramic cup with a smooth surface and a curved handle.", "features": []}, {"region": 2, "present": true, "detailed_caption": "A family of four in a park: the father sets up a picnic, the mother in a summer dress lays out food, a boy kicks a football and a girl chases bubbles.", "features": [{"name": "father", "multiplicity": "single"}, {"name": "mother", "multiplicity": "single"}, {"name": "boy", "multiplicity": "single"}, {"name": "girl", "multiplicity": "single"}]}]}

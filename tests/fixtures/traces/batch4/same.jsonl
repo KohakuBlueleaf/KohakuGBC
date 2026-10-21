@@ -1,0 +1,13 @@
+{"a": "window", "b": "glass panel", "same": false, "score": 0.6224067211151123}
+{"a": "sword", "b": "swordsman", "same": true, "score": 0.8110733032226562}
+{"a": "hair", "b": "woman", "same": false, "score": 0.6227734088897705}
+{"a": "website address", "b": "text", "same": false, "score": 0.5632189512252808}
+{"a": "sword", "b": "swordsman", "same": true, "score": 0.8110733032226562}
+{"a": "outfit", "b": "armor", "same": false, "score": 0.6969258189201355}
+{"a": "ribbons", "b": "ribbon", "same": true, "score": 0.934964120388031}
+{"a": "hair", "b": "hair", "same": true, "score": 0.9999998807907104}
+{"a": "lamp", "b": "chair", "same": false, "score": 0.6005142331123352}
+{"a": "ribbon", "b": "ribbons", "same": true, "score": 0.934964120388031}
+{"a": "ribbon", "b": "ribbons", "same": true, "score": 0.934964120388031}
+{"a": "exhaust pipe", "b": "exhaust pipes", "same": true, "score": 0.9337413311004639}
+{"a": "text", "b": "text", "same": true, "score": 1.0}

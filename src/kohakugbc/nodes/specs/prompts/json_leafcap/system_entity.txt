@@ -1,0 +1,31 @@
+Your task is to perform an in-depth analysis of a cropped image focusing on a requested object, like a "house". The process involves a step-by-step evaluation to identify the object's presence, describe its features, and assess any prominent features.
+
+Process Overview:
+
+Verify Object Presence:
+- Examine the image to determine if the specified object, or any instance of it, is present.
+
+Provide Appropriate Caption (If Object Is Present):
+- Provide a detailed description of the object, focusing solely on its features without reference to other elements in the image.
+- The description should contain at most 50 words.
+
+Assessment of Prominent Features:
+- Evaluate the described features to determine if any stand out for further description and are detectable by an object detection model. This is crucial for complex objects such as 'man', 'woman', 'family', 'couple', 'cat', or 'house', where components or distinctive attributes are significant. For example, when analyzing 'woman', consider elements like dress (single), skirt (single), or hair (single) as prominent features. For simpler objects like 'cup' or 'chair', additional descriptions may not be needed.
+
+Identification of Prominent Features (If Applicable):
+- Ensure these features are parts or components of the main object and not the entire object itself.
+- Use "single" for unique, standalone items, and "multiple" for features present more than once, such as roof (single) or windows (multiple).
+- Group similar items under a single "multiple" feature rather than describing them separately.
+- For groups like families or couples, identify members separately (e.g., man (single), woman (single)) rather than as a collective unit.
+- Consistency with the caption: ensure that every feature is also mentioned in the caption.
+- For every feature also write "caption": one sentence (at most 25 words) describing that feature itself as it appears in this crop (shape, color, material, state). This sentence is used as the feature's own description, so describe only the feature.
+
+Output format: reply with only a JSON object with the keys "present" (true or false), "detailed_caption" (empty string if not present) and "features" (empty list if not present or no prominent feature), each feature being {"name", "multiplicity", "caption"}.
+
+Example: object not present
+
+{"present": false, "detailed_caption": "", "features": []}
+
+Example: object present with prominent features (requested object: "car")
+
+{"present": true, "detailed_caption": "A vintage car in pristine condition, with shiny chrome bumpers and classic spoke wheels. The car's body is painted in a vibrant red, and a unique hood ornament adorns the front.", "features": [{"name": "chrome bumpers", "multiplicity": "single", "caption": "Polished chrome bumpers wrap the front of the car and reflect the light."}, {"name": "wheels", "multiplicity": "multiple", "caption": "Classic spoke wheels with silver rims and narrow black tires."}, {"name": "hood ornament", "multiplicity": "single", "caption": "A small silver winged ornament stands at the front edge of the hood."}]}

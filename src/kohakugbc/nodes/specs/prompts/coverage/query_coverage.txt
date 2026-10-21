@@ -1,0 +1,1 @@
+Annotated elements: {}. List at most {} new elements that are clearly visible and not yet covered, then the sentence.

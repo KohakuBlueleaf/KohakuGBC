@@ -1,0 +1,11 @@
+{"a": "signboard", "b": "sign", "same": true, "score": 0.8438835144042969}
+{"a": "hair", "b": "woman", "same": false, "score": 0.6227734088897705}
+{"a": "red ribbon", "b": "ribbon", "same": true, "score": 0.8100895881652832}
+{"a": "pink hair", "b": "hair", "same": true, "score": 0.7714281678199768}
+{"a": "swords", "b": "ribbon", "same": false, "score": 0.5682225227355957}
+{"a": "swords", "b": "red ribbon", "same": false, "score": 0.5162246227264404}
+{"a": "sneakers", "b": "shoes", "same": true, "score": 0.8883593082427979}
+{"a": "sneakers", "b": "shoes", "same": true, "score": 0.8883593082427979}
+{"a": "shoes", "b": "shoes", "same": true, "score": 1.0000001192092896}
+{"a": "shoes", "b": "shoes", "same": true, "score": 1.0000001192092896}
+{"a": "laces", "b": "laces", "same": true, "score": 1.0}
