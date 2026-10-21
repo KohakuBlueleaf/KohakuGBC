@@ -6,6 +6,8 @@ thing in other words. Both are counted per key, so a replayed run says where it 
 source's path.
 """
 
+import hashlib
+
 import numpy as np
 
 from kohakugbc.nodes.specs.trace import Trace
@@ -53,7 +55,15 @@ class ReplayModels:
             self.mismatches.append({"key": request["key"], "field": "size"})
         return rec["raw"]
 
-    def embedder(self, text: str) -> np.ndarray | None:
-        """The recorded vector; None for a name the source never compared (it embeds lazily)."""
+    def embedder(self, text: str, unknown: str = "none") -> np.ndarray | None:
+        """The recorded vector. A name the source never compared (it embeds lazily) gets None,
+        or with ``unknown="hash"`` a unit vector drawn from the name's hash: for runs that leave
+        the recorded path on purpose (injected failures)."""
         self.calls["embedder"] += 1
-        return self.trace.embed.get(text)
+        vec = self.trace.embed.get(text)
+        if vec is None and unknown == "hash":
+            dim = len(next(iter(self.trace.embed.values()))) if self.trace.embed else 768
+            seed = int.from_bytes(hashlib.sha256(text.encode("utf-8")).digest()[:8], "big")
+            vec = np.random.default_rng(seed).standard_normal(dim).astype(np.float32)
+            vec /= np.linalg.norm(vec)
+        return vec

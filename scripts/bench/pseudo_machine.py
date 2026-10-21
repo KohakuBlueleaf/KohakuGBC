@@ -31,8 +31,9 @@ from kohakugbc.nodes.specs.replay import ReplayModels
 from kohakugbc.nodes.specs.trace import Trace
 from kohakugbc.program.reference import run as reference
 
-# name -> (arm, VLM capacity, vlm_waiting, window, detect capacity)
+# name -> (arm, VLM capacity, vlm_waiting, window, detect capacity, other knobs)
 CONFIGS = {
+    "text_c32_noahead": ("text", 32, 32, 64, 2, {"run_ahead": False}),
     "text_c32_w32": ("text", 32, 32, 64, 2),
     "text_c32_w8": ("text", 32, 8, 64, 2),
     "text_c32_w128": ("text", 32, 128, 64, 2),
@@ -67,7 +68,9 @@ def metrics(path: Path) -> list[dict]:
         return [json.loads(line) for line in f if line.strip()]
 
 
-def run(name: str, args, arm: str, capacity: int, waiting: int, window: int, det: int) -> dict:
+def run(
+    name: str, args, arm: str, capacity: int, waiting: int, window: int, det: int, knobs=None
+) -> dict:
     trace_dir = Path(args.traces) / arm
     report = Path(args.out) / name / "report"
     engines = {
@@ -84,6 +87,7 @@ def run(name: str, args, arm: str, capacity: int, waiting: int, window: int, det
             "window": window,
             "report": str(report),
             "record": args.record,
+            "knobs": dict(knobs or {}),
         },
     }
     machine, source, sink = build(layers)

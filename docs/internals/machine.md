@@ -26,14 +26,32 @@ its request) or a `call` (the units run the node's Python function, which calls 
 
 | Slot | Node | Entries |
 |---|---|---|
-| `vlm` | `chat` | `replay` |
-| `detect` | `detector` | `replay` |
-| `embed` | `embedder` | `replay` |
-| `cpu` | heavy plain nodes | `python` (Togeari's Python workers, threads or processes) |
+| `vlm` | `chat` | `replay`, `remote` |
+| `detect` | `detector` | `replay`, `remote` |
+| `embed` | `embedder` | `replay`, `remote` |
+| `cpu` | heavy plain nodes | `python` (Togeari's Python workers, threads or processes), `remote` |
 
 `replay` units are Togeari's simulated engines answering from a trace with its recorded
-latencies (`latency_ms` fixes one; `speed` divides them; `units`, `capacity`, `max_batch`,
-`item_error_rate`, `outages`).
+latencies (`latency_ms` fixes one; `speed` divides them, `speeds` per unit; `units`,
+`capacity`, `max_batch`, `item_error_rate`, `outages`; `unknown="hash"` gives names the trace
+never embedded a vector, for runs that leave the recorded path). Their payloads pickle, so they
+also run behind an engine host. `remote` units are [engines on other nodes](engine-host.md).
+
+## Failures
+
+| What fails | The job |
+|---|---|
+| a VLM request | goes on with an empty reply, as GBC reads a failed request: the entity is absent, the root names nothing, the relation has no sentence |
+| a detector or embedder call | fails, naming the node and the reason |
+| a unit (`UnitError`, an outage, a lost host) | goes on: the lane retries the work on the other units; with none up, it waits up to the lane's `lane_dead_s` |
+
+## Snapshots
+
+A job snapshots only at a boundary: an empty window and one strand. Under run-ahead a GBC job
+always holds speculative work, so it never reaches one; `knobs = {"snapshot_every": N}` needs
+`"run_ahead": False`, and the build refuses it otherwise. Without run-ahead a job takes a
+snapshot about every 15 statements and resumes from the last one; the run costs about 9% more
+on pseudo engines ([performance](../performance/pseudo-engines.md)).
 
 ## Bindings and policies
 
@@ -52,5 +70,9 @@ the lane's queue and its units' waiting counts are below the target. Issue is
 `tests/machine` runs the recorded PoC jobs of every fixture arm on replay engines: each graph
 equals the PoC's by digest and each recorded job conforms to KIR's reference interpreter; a job
 whose requests take 50 ms each finishes in under half its requests' sum (a wave's regions run
-side by side); 30 jobs keep a VLM lane of 8 within 1.4x of its floor. `scripts/bench/pseudo_machine.py`
+side by side); 30 jobs keep a VLM lane of 8 within 1.4x of its floor. `tests/machine/
+test_configurations.py` runs the jobs with three VLM units, with units behind an engine host in
+the same process and in another, with a unit down mid-run, with failing VLM requests and
+detector calls, with a slow unit beside a fast one, with a unit joining and one leaving mid-run,
+and stopped mid-run then resumed from snapshots: every job that ends ok gives the PoC's graph. `scripts/bench/pseudo_machine.py`
 measures the configurations of [performance](../performance/pseudo-engines.md).

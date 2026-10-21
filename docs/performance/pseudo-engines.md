@@ -14,6 +14,7 @@ in flight over its capacity while jobs are resident. Windows 11, Python 3.13, th
 | text, VLM 32, window 16 | 36.04 | 33.03 | 0.917 | 0.925 | 0.146 | 1.35 | 1.83 |
 | text, VLM 64, waiting 64 | 19.34 | 16.52 | 0.854 | 0.845 | 0.269 | 2.31 | 4.52 |
 | text, VLM 32, detector 1 slot | 35.62 | 33.03 | 0.927 | 0.939 | 0.143 | 1.94 | 4.66 |
+| text, VLM 32, no run-ahead | 38.85 | 33.03 | 0.850 | 0.868 | 0.144 | 1.34 | 4.46 |
 | image query root | 48.53 | 44.12 | 0.909 | 0.909 | 0.134 | 1.27 | 4.60 |
 | tags root | 32.42 | 30.35 | 0.936 | 0.907 | 0.153 | 1.72 | 4.59 |
 | image and text root | 41.53 | 38.41 | 0.925 | 0.921 | 0.141 | 1.32 | 4.72 |

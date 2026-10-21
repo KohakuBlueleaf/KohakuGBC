@@ -47,25 +47,31 @@ def entry(slot: str, name: str):
     return register
 
 
+def build_slot(slot: str, settings: dict | None, shared: dict) -> Slot:
+    """One slot's ``Slot`` from its settings (``entry`` and the entry's own)."""
+    settings = dict(settings or {})
+    name = settings.pop("entry", None)
+    if name is None:
+        raise ValueError(f"engines.{slot}: no entry")
+    factory = ENTRIES.get((slot, name))
+    if factory is None:
+        known = sorted(n for s, n in ENTRIES if s == slot)
+        raise ValueError(f"engines.{slot}: unknown entry {name!r} (known: {known})")
+    try:
+        return factory(settings, shared)
+    except (TypeError, ValueError, KeyError, OSError) as exc:
+        raise ValueError(f"engines.{slot}.{name}: {exc}") from exc
+
+
 def build(engines: dict) -> dict[str, Slot]:
     """Every slot's ``Slot`` from the engine configuration; every problem in one error."""
     shared: dict = {}
     problems, out = [], {}
     for slot in SLOTS:
-        settings = dict(engines.get(slot) or {})
-        name = settings.pop("entry", None)
-        if name is None:
-            problems.append(f"engines.{slot}: no entry")
-            continue
-        factory = ENTRIES.get((slot, name))
-        if factory is None:
-            known = sorted(n for s, n in ENTRIES if s == slot)
-            problems.append(f"engines.{slot}: unknown entry {name!r} (known: {known})")
-            continue
         try:
-            out[slot] = factory(settings, shared)
-        except (TypeError, ValueError, KeyError, OSError) as exc:
-            problems.append(f"engines.{slot}.{name}: {exc}")
+            out[slot] = build_slot(slot, engines.get(slot), shared)
+        except ValueError as exc:
+            problems.append(str(exc))
     if problems:
         raise ValueError("engine configuration:\n  " + "\n  ".join(problems))
     return out

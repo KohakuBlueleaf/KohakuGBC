@@ -5,6 +5,7 @@ lane per engine slot from the configuration's entries, the bindings, admission t
 VLM lane full, oldest-job-first issue.
 """
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from togeari import Inline, Lane, Machine, Use
@@ -61,10 +62,13 @@ class SlotModels:
 
 
 def lanes_of(slots: dict) -> dict[str, Lane]:
-    return {
-        name: Lane(s.units, former=s.former, select=s.select, name=name, **s.lane)
-        for name, s in slots.items()
-    }
+    """One lane per slot; the slot's ``lane`` options (former, select, ...) win over the
+    entry's own former and selector."""
+    out = {}
+    for name, s in slots.items():
+        options = {"former": s.former, "select": s.select, **s.lane}
+        out[name] = Lane(s.units, name=name, **{k: v for k, v in options.items() if v is not None})
+    return out
 
 
 def bindings(lanes: dict, slots: dict, store: bool) -> dict:
@@ -81,14 +85,50 @@ def bindings(lanes: dict, slots: dict, store: bool) -> dict:
     return bind
 
 
+def store_of(spec):
+    """The machine's store: ``"memory"``, a store object (``togeari.stores``), or None."""
+    match spec:
+        case None:
+            return None
+        case "memory":
+            return MemoryStore()
+        case str() | dict():
+            raise ValueError(f"machine.store {spec!r}: 'memory' or a store object")
+    return spec
+
+
+@dataclass
+class Parts:
+    machine: Machine
+    source: object
+    sink: object
+    lanes: dict
+    slots: dict
+
+
 def build(*layers) -> tuple:
     """(machine, source, sink) from configuration layers (``kohakugbc.machine.config``)."""
+    parts = build_parts(*layers)
+    return parts.machine, parts.source, parts.sink
+
+
+def build_parts(*layers) -> Parts:
+    """The machine with its source and sink, lanes (by slot) and slots."""
     cfg = cfg_layers.load(*layers)
     m = cfg["machine"]
+
+    # A GBC job under run-ahead always holds speculative work, so it never reaches a snapshot
+    # boundary (an empty window, one strand)
+    knobs = m.get("knobs", {})
+    if knobs.get("snapshot_every") and knobs.get("run_ahead", True):
+        raise ValueError(
+            "machine.knobs: snapshot_every needs run_ahead=False; under run-ahead a GBC job "
+            "never reaches a snapshot boundary"
+        )
     slots = registry.build(cfg["engines"])
     lanes = lanes_of(slots)
     plugins = [RunReport(Path(m["report"]))] if m.get("report") else []
-    store = MemoryStore() if m.get("store") == "memory" else None
+    store = store_of(m.get("store"))
     machine = Machine(
         program=PROGRAM,
         entry=ENTRY,
@@ -102,4 +142,5 @@ def build(*layers) -> tuple:
         window=m["window"],
         **m.get("knobs", {}),
     )
-    return machine, sources.build(cfg["source"], cfg["controls"]), sinks.build(cfg["sink"])
+    source = sources.build(cfg["source"], cfg["controls"])
+    return Parts(machine, source, sinks.build(cfg["sink"]), lanes, slots)
