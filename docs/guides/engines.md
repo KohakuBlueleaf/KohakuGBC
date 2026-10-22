@@ -68,6 +68,36 @@ the API path decodes them, and constrains the reply to the request's JSON schema
 request is aborted in vLLM. A script that builds a machine with this entry needs an
 `if __name__ == "__main__":` guard: vLLM starts its engine core by spawning a process.
 
+## The vision models (torch)
+
+The detector (OWLv2) and the embedder (EmbeddingGemma) on Togeari's torch engine
+(`pip install "kohakugbc[torch]"`), one unit per placement:
+
+```python
+engines = {
+    "detect": {"entry": "torch", "devices": "auto", "max_batch": 8, "wait_ms": 5.0},
+    "embed": {"entry": "torch", "devices": ["cpu"], "max_batch": 64},
+}
+```
+
+| Setting | Meaning |
+|---|---|
+| `model` | `google/owlv2-base-patch16-ensemble`; `google/embeddinggemma-300m` |
+| `devices` | `"auto"` (every CUDA device, else the CPU), a device, or a list: one unit per device |
+| `dtype` | float32 by default; `"auto"` picks bfloat16 or float16 by the device |
+| `max_batch`, `wait_ms` | batch size; how long a batch waits for more requests |
+| `memory_gb` | the placement plan's estimate per device |
+| `engine` | Togeari torch engine options: `schedule`, `isolation`, `slots`, `memory_cap_gb`, `prep_workers` |
+| `box_threshold`, `max_texts` | the detector's box score floor (0.05) and texts per forward row (16) |
+
+The detector's default is float32 because its results then do not depend on its batch: in
+float16 a batched crop's scores move by up to 0.085 from the crop alone, in float32 by at most
+1.3e-4 (no detection changes). Float16 with `max_batch` 1 is how the PoC ran it, and gives the
+PoC's boxes exactly. The detector needs torchvision: transformers' slower image processor
+resizes differently and gives other boxes.
+
+`gbc doctor CONFIG ...` prints the devices, the entries, and the configuration's placement plan.
+
 ## Replay
 
 Pseudo engines that answer from a recorded trace (`runs/traces/...`), for running the program

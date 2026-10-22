@@ -42,7 +42,13 @@ Repository = "https://github.com/KohakuBlueleaf/KohakuGBC"
 
 [project.optional-dependencies]
 # The vision models (detector, embedder) on Togeari's torch engine
-torch = ["togeari[torch]>=0.2.0", "torch>=2.4", "transformers>=4.57"]
+torch = [
+    "togeari[torch]>=0.2.0",
+    "torch>=2.4",
+    "torchvision>=0.19",
+    "transformers>=5.20",
+    "sentence-transformers>=6.1",
+]
 # The in-process VLM (Linux)
 vllm = ["vllm>=0.11"]
 parquet = ["pyarrow>=15"]

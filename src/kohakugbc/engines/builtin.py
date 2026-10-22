@@ -9,5 +9,9 @@ try:
     from kohakugbc.engines.vlm import inprocess
 except ImportError:
     inprocess = None
+try:
+    from kohakugbc.engines.torch import entries as torch_entries
+except ImportError:
+    torch_entries = None
 
-MODULES = tuple(m for m in (api, host, python, replay, inprocess) if m is not None)
+MODULES = tuple(m for m in (api, host, python, replay, inprocess, torch_entries) if m is not None)

@@ -27,6 +27,7 @@ from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.sampling_params import SamplingParams, StructuredOutputsParams
 from vllm.v1.engine.async_llm import AsyncLLM
 
+from kohakugbc.engines import placement
 from kohakugbc.engines.registry import Slot, entry
 from kohakugbc.nodes.specs import chat as specs
 
@@ -250,4 +251,15 @@ def vllm_units(settings: dict, shared: dict) -> Slot:
         )
         for i, d in enumerate(devices[:n])
     ]
-    return Slot(units=units, adapter=VllmChatAdapter(), lane=dict(lane))
+
+    # Each unit reserves its share of every device it uses (vLLM's gpu_memory_utilization)
+    needs = []
+    for unit in units:
+        share = float(unit.engine_args["gpu_memory_utilization"])
+        for d in unit.devices or [0]:
+            mem = placement.memory(f"cuda:{d}")
+            if mem is not None:
+                needs.append(
+                    placement.Need(unit.name, f"cuda:{d}", int(share * mem[1]), "reservation")
+                )
+    return Slot(units=units, adapter=VllmChatAdapter(), lane=dict(lane), needs=needs)

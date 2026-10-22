@@ -3,18 +3,20 @@
 gbc run CONFIG [CONFIG ...]     build the machine from configuration layers and run its source
 gbc check CONFIG [CONFIG ...]   build and check the machine without starting any unit
 gbc host CONFIG ... --slot S    serve the units of slot S's entry to remote units
+gbc doctor [CONFIG ...]         versions, devices, entries; a configuration's placement plan
 """
 
 import argparse
 import json
 import sys
 import time
+from importlib import metadata
 
 from togeari import no_unit_start
 
 from kohakugbc import __version__
 from kohakugbc.engines import host as engine_host
-from kohakugbc.engines import registry
+from kohakugbc.engines import placement, registry
 from kohakugbc.engines.host import EngineHost, wire
 from kohakugbc.machine import build, config
 
@@ -58,13 +60,57 @@ def host(layers: list[str], slot: str, listen: str, authkey_env: str) -> int:
     return 0
 
 
+def doctor(layers: list[str]) -> int:
+    """Versions, devices, the entries of every slot; with configuration layers, the engines'
+    placement plan per device and whether it fits."""
+    print(f"kohakugbc {__version__}")
+    for name, version in sorted(versions().items()):
+        print(f"  {name} {version}")
+    print("devices:")
+    for device in placement.devices("auto"):
+        mem = placement.memory(device)
+        free = (
+            f"{mem[0] / placement.GIB:.1f} of {mem[1] / placement.GIB:.1f} GiB free" if mem else ""
+        )
+        print(f"  {device} {free}")
+    print("entries:")
+    for slot in registry.SLOTS:
+        names = sorted(n for s, n in registry.ENTRIES if s == slot)
+        print(f"  {slot}: {', '.join(names)}")
+    if not layers:
+        return 0
+    cfg = config.load(*layers)
+    slots = registry.build(cfg["engines"])
+    needs = [n for s in slots.values() for n in s.needs]
+    print("placement:")
+    for need in needs:
+        print(f"  {need.device}: {need.owner} {need.what} {need.bytes / placement.GIB:.2f} GiB")
+    try:
+        placement.check(needs, cfg["machine"].get("placement_headroom", 0.05))
+    except ValueError as exc:
+        print(exc)
+        return 1
+    print("  fits")
+    return 0
+
+
+def versions() -> dict:
+    out = {}
+    for name in ("togeari", "kohakunode", "torch", "transformers", "vllm", "httpx"):
+        try:
+            out[name] = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            continue
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="gbc", description=__doc__.split("\n")[0])
     parser.add_argument("--version", action="version", version=f"kohakugbc {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("run", "check", "host"):
+    for name in ("run", "check", "host", "doctor"):
         p = sub.add_parser(name)
-        p.add_argument("configs", nargs="+")
+        p.add_argument("configs", nargs="*" if name == "doctor" else "+")
         if name == "host":
             p.add_argument("--slot", required=True, choices=registry.SLOTS)
             p.add_argument("--listen", default="127.0.0.1:7501")
@@ -77,6 +123,8 @@ def main(argv: list[str] | None = None) -> int:
             return check(args.configs)
         case "host":
             return host(args.configs, args.slot, args.listen, args.authkey_env)
+        case "doctor":
+            return doctor(args.configs)
     return 2
 
 

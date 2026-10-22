@@ -34,7 +34,15 @@ EXTRAS = {
     "kohakugbc.program": ("PIL", "numpy"),
     "kohakugbc.nodes": ("PIL", "numpy", "scipy", "hbutils", "supervision"),
     "kohakugbc.graph": ("PIL", "numpy", "pyarrow"),
-    "kohakugbc.engines": ("PIL", "numpy", "httpx", "torch", "transformers", "vllm"),
+    "kohakugbc.engines": (
+        "PIL",
+        "numpy",
+        "httpx",
+        "torch",
+        "transformers",
+        "sentence_transformers",
+        "vllm",
+    ),
     "kohakugbc.io": ("PIL", "numpy", "pyarrow"),
     "qwen35": ("PIL", "numpy", "torch", "transformers", "triton", "tilelang", "safetensors"),
 }

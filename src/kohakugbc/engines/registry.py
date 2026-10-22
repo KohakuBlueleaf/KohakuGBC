@@ -32,6 +32,8 @@ class Slot:
     call: Callable | None = None
     # The lane's options (``max_inflight``, ``timeout_s``, ...)
     lane: dict = field(default_factory=dict)
+    # What the units will hold on which device (``kohakugbc.engines.placement.Need``)
+    needs: list = field(default_factory=list)
 
 
 def entry(slot: str, name: str):

@@ -13,7 +13,7 @@ from togeari.plugins import RunReport
 from togeari.policies import All, OldestJobFirst, TargetLoad
 from togeari.stores import MemoryStore
 
-from kohakugbc.engines import builtin, registry
+from kohakugbc.engines import builtin, placement, registry
 from kohakugbc.io import sinks, sources
 from kohakugbc.machine import config as cfg_layers
 from kohakugbc.nodes import library
@@ -127,6 +127,11 @@ def build_parts(*layers) -> Parts:
             "never reaches a snapshot boundary"
         )
     slots = registry.build(cfg["engines"])
+
+    # Every engine's memory on every device, before any unit loads a weight
+    placement.check(
+        [n for s in slots.values() for n in s.needs], headroom=m.get("placement_headroom", 0.05)
+    )
     lanes = lanes_of(slots)
     plugins = [RunReport(Path(m["report"]))] if m.get("report") else []
     store = store_of(m.get("store"))
