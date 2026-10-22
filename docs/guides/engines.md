@@ -68,6 +68,18 @@ the API path decodes them, and constrains the reply to the request's JSON schema
 request is aborted in vLLM. A script that builds a machine with this entry needs an
 `if __name__ == "__main__":` guard: vLLM starts its engine core by spawning a process.
 
+## The VLM in-process (the qwen35 example)
+
+A Qwen3.5 engine written for this workload (`pip install -e examples/qwen35`; Windows and
+Linux), one unit per device:
+
+```python
+engines = {"vlm": {"entry": "qwen35", "model": "Qwen/Qwen3.5-4B", "memory": 0.65}}
+```
+
+Its settings, design and tests: [examples/qwen35](../../examples/qwen35/README.md).
+`configs/machine/qwen35_local.py` runs the whole machine on one GPU with it.
+
 ## The vision models (torch)
 
 The detector (OWLv2) and the embedder (EmbeddingGemma) on Togeari's torch engine

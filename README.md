@@ -31,6 +31,17 @@ pip install "kohakugbc[torch]"   # detector and embedder on torch
 pip install "kohakugbc[vllm]"    # the VLM in-process (Linux)
 ```
 
+## Run on one GPU
+
+```
+pip install "kohakugbc[torch]"
+pip install -e examples/qwen35
+GBC_IMAGES=path/to/images gbc run configs/machine/qwen35_local.py
+```
+
+The VLM ([examples/qwen35](examples/qwen35/README.md), Qwen3.5-4B), the detector and the
+embedder on one 24 GiB GPU; one graph per image in `runs/machine/qwen35_local/graphs.jsonl`.
+
 ## Docs
 
 [docs/](docs/README.md): concepts, guides, internals, performance.
