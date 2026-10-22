@@ -44,7 +44,18 @@ EXTRAS = {
         "vllm",
     ),
     "kohakugbc.io": ("PIL", "numpy", "pyarrow"),
-    "qwen35": ("PIL", "numpy", "torch", "transformers", "triton", "tilelang", "safetensors"),
+    "qwen35": (
+        "PIL",
+        "numpy",
+        "torch",
+        "transformers",
+        "huggingface_hub",
+        "triton",
+        "fla",
+        "xgrammar",
+        "tilelang",
+        "safetensors",
+    ),
 }
 
 # Source roots scanned; a module's name is its path under its root
