@@ -5,47 +5,135 @@
 
 ![One image's GBC graph: the image with the box of every entity, the graph of its vertices, and captions linked phrase to vertex](docs/assets/teaser.jpg)
 
-Graph-Based Captioning ([GBC](https://arxiv.org/abs/2407.06723), Apple's
-[ml-gbc](https://github.com/apple/ml-gbc)) as one [KIR](https://github.com/KohakuBlueleaf/KohakuNodeIR)
-program on the [Togeari](https://github.com/KohakuBlueleaf/Togeari) dataflow machine, with the
-engines that run it: a VLM over any OpenAI-compatible or Anthropic API, vLLM in-process, a
-specialised Qwen3.5 engine, OWLv2 or SAM 3 for detection, EmbeddingGemma for names, on one GPU,
-many GPUs or other nodes.
+Graph-Based Captioning ([GBC](https://arxiv.org/abs/2407.06723)) as one
+[KIR](https://github.com/KohakuBlueleaf/KohakuNodeIR) program on the
+[Togeari](https://github.com/KohakuBlueleaf/Togeari) dataflow machine, with the engines that run
+it: a VLM over any OpenAI-compatible or Anthropic API, vLLM in-process or a specialised Qwen3.5
+engine; OWLv2 or SAM 3 for detection; EmbeddingGemma for names; on one GPU, many GPUs or other
+nodes.
 
-A GBC graph describes one image as a DAG. The image vertex carries a short and a detailed
-caption; the objects those captions name are entity vertices with their own captions and boxes;
-their parts hang below them; composition vertices arrange several instances of one object;
-relation vertices describe how objects relate. Every edge is grounded three ways: it is a graph
-edge, its label is a phrase of the parent's caption, and the child's box lies inside the parent's.
+Producing one GBC graph is a branching process: ask the VLM, detect what it named, describe each
+region, detect its parts, merge regions that are the same object, ask relational questions. Its
+control flow differs per image and cannot be batched across images by hand. KohakuGBC writes
+that process once, as a sequential KIR program; Togeari runs many images at once, overlaps every
+call the sequential run cannot tell apart, and turns their model calls into batched engine calls.
 
-Producing one graph is a branching process (ask the VLM, detect what it named, describe each
-region, detect its parts, merge regions that are the same object, ask relational questions) whose
-control flow differs per image and cannot be batched across images by hand. KohakuGBC writes that
-process once, as a sequential KIR program; Togeari runs many images at once, overlaps every call
-the sequential run cannot tell apart, and turns their model calls into batched engine calls.
+**Contents:** [Highlights](#highlights) · [Install](#install) · [Quick start](#quick-start) ·
+[How it works](#how-it-works) · [Configuration](#configuration) · [Output](#output) ·
+[Faithful to GBC](#faithful-to-gbc) · [Measured](#measured) ·
+[Repository layout](#repository-layout) · [Documentation](#documentation) · [Checks](#checks)
+
+## Highlights
+
+- **GBC at scale, with the models you choose.** Thousands to millions of images through a hosted
+  API, your own vLLM or SGLang servers, or everything in one process on your GPU; engines on
+  other nodes join the same lanes.
+- **Exactly the sequential procedure.** Every job can be recorded and replayed through KIR's
+  reference interpreter. On recorded runs of GBC's proof of concept, every graph equals the
+  PoC's to the digest.
+- **The procedure as data.** The root (an image query, existing captions, tags), the node budget,
+  the fan-out and the relational questions are per-image `controls`; the detector is one setting.
+- **One engine contract.** Every engine, from an HTTP server to the qwen35 engine written for this
+  workload, sits behind Togeari's contract and is checked against it.
+
+## Install
 
 ```
-$ GBC_IMAGES=portrait/ gbc run configs/machine/qwen35_local.py configs/machine/qwen35_sam3_local.py
-$ head -c 250 runs/machine/qwen35_local/graphs.jsonl
+pip install kohakugbc                 # program, machine, API and replay engines
+pip install "kohakugbc[torch]"        # detector (OWLv2, SAM 3) and embedder on torch
+pip install "kohakugbc[vllm]"         # the VLM in-process through vLLM (Linux)
+pip install -e examples/qwen35        # the qwen35 engine (Windows and Linux; from a clone)
+```
+
+Wheels carry the Rust extension `kohakugbc._rs` (graph resolution). From a clone, with a Rust
+toolchain:
+
+```
+git clone https://github.com/KohakuBlueleaf/KohakuGBC && cd KohakuGBC
+uv venv -p 3.13
+uv pip install -e ".[torch,dev]"      # add torch from the index matching your driver
+uv pip install -e examples/qwen35
+gbc doctor
+```
+
+`gbc doctor` prints versions, devices with their free memory, every entry per slot and, given
+configuration layers, their placement plan and whether it fits.
+
+## Quick start
+
+**On one GPU**, the VLM, the detector and the embedder in this process (`configs/machine/
+qwen35_local.py`: Qwen3.5-4B on the qwen35 engine, OWLv2, EmbeddingGemma on the CPU; 24 GiB):
+
+```
+GBC_IMAGES=path/to/images gbc run configs/machine/qwen35_local.py
+# SAM 3 as the detector (illustrations):
+GBC_IMAGES=path/to/images gbc run configs/machine/qwen35_local.py configs/machine/qwen35_sam3_local.py
+```
+
+One graph per image lands in `runs/machine/qwen35_local/graphs.jsonl`; the teaser above is the
+graph of its image (29 vertices, the figure shows 20; 51 edges, 48 captions), drawn by
+`scripts/docs/teaser.py`:
+
+```
 {"vertices":[{"vertex_id":"","bbox":{"left":0.0,"top":0.0,"right":1.0,"bottom":1.0,"confidence"
 :null},"label":"image","descs":[{"text":"An anime-style illustration depicts a young girl with
 blonde hair and fox-like ears sitting on a weathered wooden window sil ...
 ```
 
-The teaser above is that graph: 29 vertices (the figure shows 20) with 51 edges and 48
-captions, drawn by `scripts/docs/teaser.py` from `graphs.jsonl`.
+**Over an API**, the VLM on a server (vLLM, SGLang, llama.cpp, OpenAI, OpenRouter, Anthropic),
+the vision models here:
 
-## When to use it
+```python
+# my_run.py
+engines = {
+    "vlm": {
+        "entry": "api",
+        "protocol": "openai",
+        "flavour": "vllm",
+        "model": "Qwen/Qwen3.5-4B",
+        "endpoints": [{"base_url": "http://10.0.0.5:8000/v1", "max_inflight": 64}],
+        "metrics": "vllm",
+    },
+    "detect": {"entry": "torch", "model": "facebook/sam3", "dtype": "bfloat16"},
+    "embed": {"entry": "torch", "devices": ["cpu"]},
+}
+source = {"kind": "folder", "path": "images"}
+sink = {"kind": "graphs", "path": "runs/my_run/graphs.jsonl"}
+machine = {"report": "runs/my_run/report"}
+```
 
-- You want GBC graphs for thousands to millions of images, with the models you choose: a hosted
-  API, your own vLLM or SGLang servers, or everything in one process on your GPU.
-- You want each graph to be exactly what the sequential GBC procedure gives. Every job can be
-  recorded and replayed through KIR's reference interpreter; on recorded runs of GBC's own proof
-  of concept, every graph equals the PoC's to the digest.
-- You want to change the procedure (a root from existing captions or tags, a node budget, a
-  detector) as data (`controls`) or as a program edit, not as a rewrite of a pipeline.
+```
+gbc check my_run.py      # build the machine without starting a unit; every problem at once
+gbc run my_run.py
+```
 
-## Concepts
+**Without models**, the recorded PoC runs replayed: the program and the machine on pseudo
+engines, every graph equal to the PoC's.
+
+```
+gbc run configs/machine/replay_text.py
+```
+
+**From Python**:
+
+```python
+from kohakugbc.machine import build
+
+machine, source, sink = build(
+    "configs/machine/qwen35_local.py", {"source": {"kind": "folder", "path": "images"}}
+)
+with machine:
+    machine.run(source, sink)
+```
+
+| Command | Does |
+|---|---|
+| `gbc run CONFIG [CONFIG ...]` | builds the machine from configuration layers and runs its source into its sink |
+| `gbc check CONFIG ...` | builds and checks the machine without starting any unit |
+| `gbc host CONFIG ... --slot S --listen HOST:PORT` | serves slot S's units to machines on other nodes |
+| `gbc doctor [CONFIG ...]` | versions, devices, entries; a configuration's placement plan |
+
+## How it works
 
 | Layer | Package | Holds |
 |---|---|---|
@@ -53,23 +141,15 @@ captions, drawn by `scripts/docs/teaser.py` from `graphs.jsonl`.
 | GBC machine | `kohakugbc.machine`, `kohakugbc.io` | the program on Togeari: one lane per engine slot, bindings, admission, sources, sinks, configuration layers |
 | GBC engines | `kohakugbc.engines`, `examples/qwen35` | entries per slot, the placement plan, engines on other nodes, replay engines for runs without models |
 
-```mermaid
-flowchart LR
-    src[("source<br/>folder, jsonl, trace")] --> adm["admission<br/>(VLM lane load)"]
-    adm --> jobs["image jobs<br/>gbc.kir, out of order"]
-    jobs -->|"chat"| vlm["vlm lane<br/>API, vLLM, qwen35"]
-    jobs -->|"detector"| det["detect lane<br/>OWLv2, SAM 3"]
-    jobs -->|"embedder"| emb["embed lane<br/>EmbeddingGemma"]
-    jobs -->|"crops, parsing, resolution"| cpu["cpu lane<br/>Python workers"]
-    vlm --> jobs
-    det --> jobs
-    emb --> jobs
-    cpu --> jobs
-    jobs -->|"graph"| sink[("sink<br/>graphs.jsonl")]
-    jobs -.->|"recorded calls"| ref["KIR reference<br/>(conformance)"]
-```
+### The GBC graph
 
-### One image job
+A GBC graph describes one image as a DAG. The image vertex carries a short and a detailed
+caption; the objects those captions name are entity vertices with their own captions and boxes;
+their parts hang below them; composition vertices arrange several instances of one object;
+relation vertices describe how objects relate. Every edge is grounded three ways: it is a graph
+edge, its label is a phrase of the parent's caption, and the child's box lies inside the parent's.
+
+### The program: one image job
 
 `gbc.kir` is a plain sequential program; this is its top level:
 
@@ -121,12 +201,27 @@ are the defaults under each job's own.
 
 ### The machine
 
+```mermaid
+flowchart LR
+    src[("source")] --> adm["admission"] --> jobs["image jobs<br/>gbc.kir, out of order"]
+    jobs <-->|"calls"| lanes["lanes<br/>vlm · detect · embed · cpu"] <--> units["engine units<br/>API · vLLM · qwen35 · torch · remote"]
+    jobs --> sink[("graphs.jsonl")]
+```
+
 Togeari runs each image job like a thread on an out-of-order CPU core: statements issue as soon
 as their inputs exist, a branch still being decided parks while the code after it runs ahead, a
 `parallel` or `each` fans out, and a window retires everything in program order, so a job's
 result is exactly the sequential run's. Across jobs, every model call of one kind joins one
 lane: the detect lane batches crops from many images into one forward, the VLM lane keeps its
 units' queues full.
+
+![The GBC machine on 30 recorded images: every engine call per image over time, calls in flight per lane, and one image's overlapping calls](docs/assets/machine.jpg)
+
+One run of the machine from its event log (`scripts/docs/machine_view.py`): 30 recorded images
+on replay engines at their recorded latencies. Left, each image is a row and each engine call a
+bar on its lane's colour; the images overlap on the shared engines. Right, the VLM lane stays at
+its capacity of 32 until the last images finish, and a single image keeps up to 10 of its own VLM
+requests in flight at once.
 
 | Slot | Node | Lane | Entries |
 |---|---|---|---|
@@ -140,92 +235,39 @@ lane's queue and its units' waiting counts are below it. Each slot's entry is se
 placement plan adds up what every engine holds on every device and refuses a configuration that
 does not fit before any weight loads.
 
-## Install
+### Engines
 
-```
-pip install kohakugbc                 # program, machine, API and replay engines
-pip install "kohakugbc[torch]"        # detector (OWLv2, SAM 3) and embedder on torch
-pip install "kohakugbc[vllm]"         # the VLM in-process through vLLM (Linux)
-pip install -e examples/qwen35        # the qwen35 engine (Windows and Linux; from a clone)
-```
+| Entry | Slot | Runs | Notes |
+|---|---|---|---|
+| `api` | vlm | any OpenAI-compatible server or Anthropic's Messages API, one unit per endpoint | `flavour` places the JSON schema and turns Qwen3.5's thinking off per server kind; rate limits, health checks, `X-GBC-Request` digests |
+| `vllm` | vlm | vLLM's `AsyncLLM` in this process, one unit per device group | tensor parallel over a unit's devices; its reservation in the placement plan |
+| `qwen35` | vlm | a Qwen3.5 engine written for this workload ([examples/qwen35](examples/qwen35/README.md)) | packed mixed steps over state slots and paged KV, prefix snapshots, Triton kernels raced against references, decode CUDA graphs, xgrammar masks with forced-token jumps, a vision stage of its own |
+| `torch` | detect | OWLv2 (`google/owlv2-base-patch16-ensemble`, the PoC's) or SAM 3 (`facebook/sam3`) | one unit per device; OWLv2 in float16 at batch 1 reproduces the PoC's boxes exactly |
+| `torch` | embed | EmbeddingGemma | batched, normalised |
+| `python` | cpu | Togeari's Python workers | threads or processes |
+| `remote` | any | units served by `gbc host` on another node | the lane sees them as local units |
+| `replay` | any | answers from a recorded trace with its recorded latencies | for running the program and the machine without models |
 
-Wheels carry the Rust extension `kohakugbc._rs` (graph resolution). From a clone, with a Rust
-toolchain:
-
-```
-git clone https://github.com/KohakuBlueleaf/KohakuGBC && cd KohakuGBC
-uv venv -p 3.13
-uv pip install -e ".[torch,dev]"      # add torch from the index matching your driver
-uv pip install -e examples/qwen35
-gbc doctor
-```
-
-`gbc doctor` prints versions, devices with their free memory, every entry per slot and, given
-configuration layers, their placement plan and whether it fits.
-
-## Quick start
-
-**On one GPU**, the VLM, the detector and the embedder in this process (`configs/machine/
-qwen35_local.py`: Qwen3.5-4B on the qwen35 engine, OWLv2, EmbeddingGemma on the CPU; 24 GiB):
-
-```
-GBC_IMAGES=path/to/images gbc run configs/machine/qwen35_local.py
-# SAM 3 as the detector (illustrations):
-GBC_IMAGES=path/to/images gbc run configs/machine/qwen35_local.py configs/machine/qwen35_sam3_local.py
-```
-
-**Over an API**, the VLM on a server (vLLM, SGLang, llama.cpp, OpenAI, OpenRouter, Anthropic),
-the vision models here:
+**Detection on illustrations.** On an anime-style portrait, OWLv2 (the PoC's detector) gives its
+best "girl" box (0.415) to her legs alone, and the GBC rule for a single object keeps it; her
+parts are then asked of that crop, where her tail is the only "hair" in sight. SAM 3 boxes the
+whole girl (0.89), her hair (0.94) and her tail (0.91) apart. The detector is one setting:
 
 ```python
-# my_run.py
-engines = {
-    "vlm": {
-        "entry": "api",
-        "protocol": "openai",
-        "flavour": "vllm",
-        "model": "Qwen/Qwen3.5-4B",
-        "endpoints": [{"base_url": "http://10.0.0.5:8000/v1", "max_inflight": 64}],
-        "metrics": "vllm",
-    },
-    "detect": {"entry": "torch", "model": "facebook/sam3", "dtype": "bfloat16"},
-    "embed": {"entry": "torch", "devices": ["cpu"]},
-}
-source = {"kind": "folder", "path": "images"}
-sink = {"kind": "graphs", "path": "runs/my_run/graphs.jsonl"}
-machine = {"report": "runs/my_run/report"}
+engines = {"detect": {"entry": "torch", "model": "facebook/sam3", "dtype": "bfloat16"}}
 ```
 
-```
-gbc check my_run.py      # build the machine without starting a unit; every problem at once
-gbc run my_run.py
-```
-
-**Without models**, the recorded PoC runs replayed (the program and the machine on pseudo
-engines, every graph equal to the PoC's):
+**Engines on other nodes.** `gbc host` serves a slot's units; the machine names them as a
+`remote` entry, and its lane batches, retries and fails over as for local units
+([engine host](docs/internals/engine-host.md)):
 
 ```
-gbc run configs/machine/replay_text.py
+KOHAKUGBC_HOST_KEY=... gbc host my_vlm.py --slot vlm --listen 0.0.0.0:7501
 ```
-
-**From Python**:
 
 ```python
-from kohakugbc.machine import build
-
-machine, source, sink = build(
-    "configs/machine/qwen35_local.py", {"source": {"kind": "folder", "path": "images"}}
-)
-with machine:
-    machine.run(source, sink)
+engines = {"vlm": {"entry": "remote", "hosts": ["10.0.0.5:7501/qwen35-0"], "runs": {...}}}
 ```
-
-| Command | Does |
-|---|---|
-| `gbc run CONFIG [CONFIG ...]` | builds the machine from configuration layers and runs its source into its sink |
-| `gbc check CONFIG ...` | builds and checks the machine without starting any unit |
-| `gbc host CONFIG ... --slot S --listen HOST:PORT` | serves slot S's units to machines on other nodes |
-| `gbc doctor [CONFIG ...]` | versions, devices, entries; a configuration's placement plan |
 
 ## Configuration
 
@@ -243,51 +285,14 @@ a small file of overrides.
 
 Every engine entry, with all its settings: [docs/guides/engines.md](docs/guides/engines.md).
 
-## Engines
-
-| Entry | Slot | Runs | Notes |
-|---|---|---|---|
-| `api` | vlm | any OpenAI-compatible server or Anthropic's Messages API, one unit per endpoint | `flavour` places the JSON schema and turns Qwen3.5's thinking off per server kind; rate limits, health checks, `X-GBC-Request` digests |
-| `vllm` | vlm | vLLM's `AsyncLLM` in this process, one unit per device group | tensor parallel over a unit's devices; its reservation in the placement plan |
-| `qwen35` | vlm | a Qwen3.5 engine written for this workload ([examples/qwen35](examples/qwen35/README.md)) | packed mixed steps over state slots and paged KV, prefix snapshots, Triton kernels raced against references, decode CUDA graphs, xgrammar masks with forced-token jumps, a vision stage of its own |
-| `torch` | detect | OWLv2 (`google/owlv2-base-patch16-ensemble`, the PoC's) or SAM 3 (`facebook/sam3`) | one unit per device; OWLv2 in float16 at batch 1 reproduces the PoC's boxes exactly |
-| `torch` | embed | EmbeddingGemma | batched, normalised |
-| `python` | cpu | Togeari's Python workers | threads or processes |
-| `remote` | any | units served by `gbc host` on another node | the lane sees them as local units |
-| `replay` | any | answers from a recorded trace with its recorded latencies | for running the program and the machine without models |
-
-### Detection on illustrations
-
-On an anime-style portrait, OWLv2 (the PoC's detector) gives its best "girl" box (0.415) to her
-legs alone, and the GBC rule for a single object keeps it; her parts are then asked of that crop,
-where her tail is the only "hair" in sight. SAM 3 boxes the whole girl (0.89), her hair (0.94)
-and her tail (0.91) apart. Both are one setting:
-
-```python
-engines = {"detect": {"entry": "torch", "model": "facebook/sam3", "dtype": "bfloat16"}}
-```
-
-### Engines on other nodes
-
-```
-KOHAKUGBC_HOST_KEY=... gbc host configs/engines/vlm_server.py --slot vlm --listen 0.0.0.0:7501
-```
-
-```python
-engines = {"vlm": {"entry": "remote", "hosts": ["10.0.0.5:7501/qwen35-0"], "runs": {...}}}
-```
-
-The remote unit keeps the engine contract over the wire: its lane batches, retries and fails
-over as for local units ([engine host](docs/internals/engine-host.md)).
-
 ## Output
 
 `graphs.jsonl` holds one GBC graph per line, the JSON ml-gbc writes (`vertices` with
 `vertex_id`, `bbox`, `label` image / entity / composition / relation, `descs` with their kind,
 `in_edges` and `out_edges` labelled by their grounding phrase). Beside it, `graphs.failures.jsonl`
-(one line per failed job: key, kind, message) and `graphs.stats.jsonl` (per job: vertices,
-requests, rounds). A run report (`machine.report`) holds the configuration, the environment,
-per-second metrics of every lane and unit, events, recorded jobs and a summary.
+(one line per failed job: key, kind, message) and `graphs.stats.jsonl` (per job: vertices by
+kind, edges, captions, depth, leaves). A run report (`machine.report`) holds the configuration,
+the environment, per-second metrics of every lane and unit, events, recorded jobs and a summary.
 
 ## Faithful to GBC
 
@@ -301,7 +306,7 @@ from the parent; 30 images each) were recorded as traces of every request and re
 | graph resolution, Python and Rust, against ml-gbc's conversion | equal on all 462 PoC records; Rust 0.21 ms per graph, Python 1.27 ms |
 | the program under KIR's reference interpreter, replaying the six arms | 180 / 180 graphs equal to the PoC's by digest; every request one the PoC made |
 | the machine on replay engines | 1320 jobs, every graph equal to the PoC's, every recorded job conforms |
-| the machine on real engines | every job finishes and conforms; graph statistics beside the PoC's ([below](#measured)) |
+| the machine on real engines | every job finishes and conforms; graph statistics beside the PoC's ([measured](#measured)) |
 
 Where the program differs from the PoC (prompt files read as UTF-8, seeded draws where the PoC's
 were unseeded, relational questions asked once at the end by default), each difference and why:
@@ -345,20 +350,13 @@ measured, 64 in flight, Qwen3.5-4B):
 | `qwen35` (float32 states) | 7.48 | 828 | 7.51 s / 11.85 s |
 | vLLM 0.32 in WSL | 10.21 | 1101 | 6.18 s / 9.76 s |
 
-## Architecture
+## Repository layout
 
 ```mermaid
 flowchart LR
-    cli["cli: gbc run, check, host, doctor"] --> machine["machine: build, config layers, module"]
-    machine --> program["program: gbc.kir, controls"]
-    machine --> io["io: sources, sinks"]
-    machine --> engines["engines: registry, placement"]
-    program --> nodes["nodes: regions, relations, root, specs"]
-    nodes --> graph["graph: records, resolution (Python, Rust)"]
-    engines --> entries["api, vllm, torch, python, replay, host / remote"]
-    entries --> togeari["Togeari: lanes, units, contracts"]
-    machine --> togeari
-    program --> kir["KohakuNodeIR: KIR, reference interpreter"]
+    cli["cli"] --> machine["machine"] --> program["program"] --> nodes["nodes"] --> graph["graph (Python, Rust)"]
+    machine --> engines["engines"] --> togeari["Togeari"]
+    program --> kir["KohakuNodeIR"]
 ```
 
 ```
