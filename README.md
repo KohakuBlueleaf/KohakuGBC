@@ -181,7 +181,10 @@ the vision models here:
 # my_run.py
 engines = {
     "vlm": {
-        "entry": "api", "protocol": "openai", "flavour": "vllm", "model": "Qwen/Qwen3.5-4B",
+        "entry": "api",
+        "protocol": "openai",
+        "flavour": "vllm",
+        "model": "Qwen/Qwen3.5-4B",
         "endpoints": [{"base_url": "http://10.0.0.5:8000/v1", "max_inflight": 64}],
         "metrics": "vllm",
     },
@@ -210,7 +213,9 @@ gbc run configs/machine/replay_text.py
 ```python
 from kohakugbc.machine import build
 
-machine, source, sink = build("configs/machine/qwen35_local.py", {"source": {"kind": "folder", "path": "images"}})
+machine, source, sink = build(
+    "configs/machine/qwen35_local.py", {"source": {"kind": "folder", "path": "images"}}
+)
 with machine:
     machine.run(source, sink)
 ```
