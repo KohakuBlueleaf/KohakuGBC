@@ -1,0 +1,5 @@
+[
+  {"image": "tests/fixtures/traces/images/cc12m_006.webp", "key": "cc12m_006", "calls": 421, "strands": 15, "window": 122, "vlm": 10},
+  {"image": "tests/fixtures/traces/images/danbooru_007.webp", "key": "danbooru_007", "calls": 204, "strands": 10, "window": 69, "vlm": 5},
+  {"image": "tests/fixtures/traces/images/nozomi_001.webp", "key": "nozomi_001", "calls": 207, "strands": 10, "window": 64, "vlm": 5}
+]
