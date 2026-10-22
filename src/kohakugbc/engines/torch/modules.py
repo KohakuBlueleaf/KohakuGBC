@@ -10,7 +10,9 @@ result the detector's raw output ``{"boxes", "scores", "labels"}`` in crop pixel
 concept detection: the vision encoder runs once per crop, then one decoder pass per (crop,
 text), at most ``max_units`` pairs at once (each holds a copy of its crop's features); its
 instances' boxes and scores above ``box_threshold``. On illustrated images it finds people,
-their parts and small objects that OWLv2 misses or boxes partly.
+their parts and small objects that OWLv2 misses or boxes partly. A SAM3-LiteText checkpoint
+(``vil-uob/sam3-litetext-*``: SAM 3's vision encoder, a distilled text encoder) runs the same
+way; the checkpoint's ``model_type`` picks the model class.
 
 ``SentenceEmbedder``: a sentence-transformers model (EmbeddingGemma by default), its pooled
 embedding normalised, as ``SentenceTransformer.encode(..., normalize_embeddings=True)``.
@@ -21,9 +23,19 @@ import numpy as np
 import torch
 from PIL import Image
 from sentence_transformers import SentenceTransformer
-from transformers import Owlv2ForObjectDetection, Owlv2Processor, Sam3Model, Sam3Processor
+from transformers import (
+    AutoConfig,
+    Owlv2ForObjectDetection,
+    Owlv2Processor,
+    Sam3LiteTextModel,
+    Sam3Model,
+    Sam3Processor,
+)
 
 from kohakugbc.engines.placement import LOADING
+
+# By the checkpoint's model_type (facebook/sam3 is the video config; its image model is Sam3Model)
+SAM3_MODELS = {"sam3": Sam3Model, "sam3_video": Sam3Model, "sam3_lite_text": Sam3LiteTextModel}
 
 
 class Owlv2Detector:
@@ -155,8 +167,9 @@ class Sam3Detector:
 
     def load(self, device, dtype) -> None:
         self.processor = Sam3Processor.from_pretrained(self.model_name)
+        model_class = SAM3_MODELS[AutoConfig.from_pretrained(self.model_name).model_type]
         with LOADING:
-            model = Sam3Model.from_pretrained(self.model_name, dtype=dtype)
+            model = model_class.from_pretrained(self.model_name, dtype=dtype)
         self.model = model.to(device).eval().requires_grad_(False)
         self.device, self.dtype = device, dtype
 

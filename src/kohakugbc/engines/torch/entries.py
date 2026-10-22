@@ -8,8 +8,9 @@ default: OWLv2 in float16 gives batched scores up to 0.085 from single ones, flo
 former's wait), ``memory_gb`` (the plan's estimate per device), ``engine``
 (``schedule``, ``isolation``, ``slots``, ``memory_cap_gb``, ``prep_workers``; slots whose models
 share devices, dtype and these settings share one engine). Detector: ``model`` names OWLv2
-(``google/owlv2-base-patch16-ensemble``, the PoC's) or SAM 3 (``facebook/sam3``; ``max_units``:
-(crop, text) pairs per decoder pass, 4); ``box_threshold`` (0.05), ``max_texts`` (16).
+(``google/owlv2-base-patch16-ensemble``, the PoC's) or SAM 3 (``facebook/sam3``, or a
+SAM3-LiteText checkpoint ``vil-uob/sam3-litetext-*``; ``max_units``: (crop, text) pairs per
+decoder pass, 4); ``box_threshold`` (0.05), ``max_texts`` (16).
 """
 
 from togeari.engines.torch import TorchAdapter, TorchEngine
