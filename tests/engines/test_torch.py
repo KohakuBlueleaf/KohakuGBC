@@ -1,6 +1,6 @@
 """The torch entries: OWLv2 and EmbeddingGemma give what the PoC's models gave on the recorded
 crops and names, batched equal to single, keep the engine contract, run the GBC machine to the
-PoC's graphs; the placement plan refuses what does not fit."""
+PoC's graphs; SAM 3 batched equals SAM 3 single; the placement plan refuses what does not fit."""
 
 import json
 from pathlib import Path
@@ -14,10 +14,15 @@ from togeari import WorkItem  # noqa: E402
 from togeari.testing import check_engine  # noqa: E402
 
 from kohakugbc.engines import registry  # noqa: E402
-from kohakugbc.engines.torch.modules import Owlv2Detector, SentenceEmbedder  # noqa: E402
+from kohakugbc.engines.torch.modules import (  # noqa: E402
+    Owlv2Detector,
+    Sam3Detector,
+    SentenceEmbedder,
+)
 from kohakugbc.graph import digest  # noqa: E402
 from kohakugbc.machine import build_parts  # noqa: E402
 from kohakugbc.nodes.images import cut  # noqa: E402
+from kohakugbc.nodes.specs.detect import SCORE_THRESHOLD  # noqa: E402
 from kohakugbc.nodes.specs.trace import Trace  # noqa: E402
 
 pytestmark = [pytest.mark.weights]
@@ -94,6 +99,56 @@ def test_detector_batched_equals_single(detector):
         for i in range(0, len(payloads), size):
             batched += run(detector, payloads[i : i + size])
         assert all(same_raw(a, b, px=0.05, score=5e-4) for a, b in zip(batched, single)), size
+
+
+def kept(raw: dict) -> dict:
+    """The detections the program's selection can keep (score above its threshold)."""
+    rows = [r for r in zip(raw["boxes"], raw["scores"], raw["labels"]) if r[1] > SCORE_THRESHOLD]
+    return {"boxes": [r[0] for r in rows], "scores": [r[1] for r in rows],
+            "labels": [r[2] for r in rows]}  # fmt: skip
+
+
+def same_set(a: dict, b: dict, px: float, score: float) -> bool:
+    """Equal detections in any order (instances of near-equal score may swap places): the same
+    count, and every box of ``a`` matched to its own box of ``b`` of the same label within
+    ``px`` and ``score``."""
+    if len(a["scores"]) != len(b["scores"]):
+        return False
+    free = list(zip(b["boxes"], b["scores"], b["labels"]))
+    for box, s, label in zip(a["boxes"], a["scores"], a["labels"]):
+        match = next((m for m in free if m[2] == label and abs(m[1] - s) <= score
+                      and max(abs(x - y) for x, y in zip(m[0], box)) <= px), None)  # fmt: skip
+        if match is None:
+            return False
+        free.remove(match)
+    return True
+
+
+@pytest.mark.gpu
+def test_sam3_batched_equals_single():
+    """SAM 3 runs its vision encoder once per crop and one decoder pass per (crop, text):
+    batching crops and texts gives each crop's detections alone; a crop answered with another
+    crop's features is seen."""
+    if not CUDA:
+        pytest.skip("SAM 3 on the CPU is too slow for the suite")
+    model = Sam3Detector()
+    model.load(DEVICE, torch.float32)
+    payloads = [p for p, _ in crops(Trace(TRACE))][:12]
+    single = [kept(run(model, [p])[0]) for p in payloads]
+    assert sum(len(s["scores"]) for s in single) > 5
+    for size in (2, 4):
+        batched = []
+        for i in range(0, len(payloads), size):
+            batched += [kept(r) for r in run(model, payloads[i : i + size])]
+        # Boxes come from thresholded masks: a weak mask's edge pixel may flip between batch
+        # shapes and move its box a few pixels; 2% of the crop's longer side
+        assert all(
+            same_set(a, b, px=0.02 * max(p["patch"].shape[:2]), score=2e-3)
+            for a, b, p in zip(batched, single, payloads)
+        ), size
+    # The check sees crops whose features were swapped
+    swapped = run(model, [{**payloads[0], "patch": payloads[1]["patch"]}])[0]
+    assert not same_set(kept(swapped), single[0], px=0.02 * 500, score=2e-3)
 
 
 def test_embedder_reproduces_the_poc_and_batches(embedder):

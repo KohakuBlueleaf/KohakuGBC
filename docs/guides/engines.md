@@ -94,13 +94,19 @@ engines = {
 
 | Setting | Meaning |
 |---|---|
-| `model` | `google/owlv2-base-patch16-ensemble`; `google/embeddinggemma-300m` |
+| `model` | the detector: `google/owlv2-base-patch16-ensemble` (the PoC's) or `facebook/sam3`; the embedder: `google/embeddinggemma-300m` |
 | `devices` | `"auto"` (every CUDA device, else the CPU), a device, or a list: one unit per device |
 | `dtype` | float32 by default; `"auto"` picks bfloat16 or float16 by the device |
 | `max_batch`, `wait_ms` | batch size; how long a batch waits for more requests |
 | `memory_gb` | the placement plan's estimate per device |
 | `engine` | Togeari torch engine options: `schedule`, `isolation`, `slots`, `memory_cap_gb`, `prep_workers` |
 | `box_threshold`, `max_texts` | the detector's box score floor (0.05) and texts per forward row (16) |
+
+SAM 3 boxes what OWLv2 misses on illustrated images. On an anime-style portrait, OWLv2's best
+"girl" box (0.415) covers her legs only; SAM 3 gives one full-body box (0.89) and, inside it,
+her hair (0.94) and her tail (0.91) as separate boxes, where OWLv2 boxed the tail as "hair". It
+runs its vision encoder once per crop and one decoder pass per text; batched equals single.
+`configs/machine/qwen35_sam3_local.py` layers it over the one-GPU configuration, in bfloat16.
 
 The detector's default is float32 because its results then do not depend on its batch: in
 float16 a batched crop's scores move by up to 0.085 from the crop alone, in float32 by at most

@@ -6,8 +6,13 @@ adds them per device against the memory free now, less a headroom, and every dev
 not fit is one line of one error. ``devices = "auto"`` is every CUDA device the process sees, or
 the CPU without one; the dtype ``"auto"`` is bfloat16 on CUDA devices of compute capability 8 or
 above, float16 below it, float32 on the CPU.
+
+``LOADING``: held while a model's weights load. transformers sets torch's process-wide default
+dtype for the length of a load, so two units loading at once (they start on threads of their
+own) would build parts of each other's models in the wrong dtype.
 """
 
+import threading
 from dataclasses import dataclass
 
 try:
@@ -17,6 +22,7 @@ except ImportError:
 
 GIB = 1024**3
 BYTES = {"float32": 4, "float16": 2, "bfloat16": 2}
+LOADING = threading.Lock()
 
 
 @dataclass

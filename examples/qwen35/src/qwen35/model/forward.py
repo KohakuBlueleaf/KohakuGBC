@@ -15,6 +15,7 @@ import torch.nn.functional as F
 from huggingface_hub import snapshot_download
 from transformers import Qwen3_5ForConditionalGeneration
 
+from kohakugbc.engines.placement import LOADING
 from qwen35.model.shape import Shape
 from qwen35.ops import Ops
 
@@ -64,7 +65,8 @@ class Model:
         self.path, self.device, self.dtype = path, torch.device(device), dtype
         config = json.loads((Path(path) / "config.json").read_text(encoding="utf-8"))
         self.shape = Shape.from_config(config)
-        self.hf = Qwen3_5ForConditionalGeneration.from_pretrained(path, dtype=dtype)
+        with LOADING:
+            self.hf = Qwen3_5ForConditionalGeneration.from_pretrained(path, dtype=dtype)
         self.hf = self.hf.to(self.device).eval()
         lm = self.hf.model.language_model
         self.embed = lm.embed_tokens.weight

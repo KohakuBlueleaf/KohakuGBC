@@ -7,8 +7,9 @@ default: OWLv2 in float16 gives batched scores up to 0.085 from single ones, flo
 1.3e-4; float16 with ``max_batch`` 1 is the PoC's own run), ``max_batch``, ``wait_ms`` (the batch
 former's wait), ``memory_gb`` (the plan's estimate per device), ``engine``
 (``schedule``, ``isolation``, ``slots``, ``memory_cap_gb``, ``prep_workers``; slots whose models
-share devices, dtype and these settings share one engine). Detector: ``box_threshold`` (0.05),
-``max_texts`` (16).
+share devices, dtype and these settings share one engine). Detector: ``model`` names OWLv2
+(``google/owlv2-base-patch16-ensemble``, the PoC's) or SAM 3 (``facebook/sam3``; ``max_units``:
+(crop, text) pairs per decoder pass, 4); ``box_threshold`` (0.05), ``max_texts`` (16).
 """
 
 from togeari.engines.torch import TorchAdapter, TorchEngine
@@ -16,12 +17,14 @@ from togeari.policies import SizeOrWait
 
 from kohakugbc.engines import placement
 from kohakugbc.engines.registry import Slot, entry
-from kohakugbc.engines.torch.modules import Owlv2Detector, SentenceEmbedder
+from kohakugbc.engines.torch.modules import Owlv2Detector, Sam3Detector, SentenceEmbedder
 
 # The plan's default estimates (weights and peak activations per device), by model
 ESTIMATE_GB = {
     "google/owlv2-base-patch16-ensemble": 2.0,
     "google/owlv2-large-patch14-ensemble": 4.0,
+    # bfloat16: 1.6 GiB of weights, 1.9 GiB at 4 crops of 16 texts in passes of 4 pairs
+    "facebook/sam3": 3.5,
     "google/embeddinggemma-300m": 1.4,
 }
 
@@ -65,13 +68,17 @@ def model_name(model) -> str:
 
 @entry("detect", "torch")
 def detector(settings: dict, shared: dict) -> Slot:
-    model = Owlv2Detector(
-        settings.get("model", "google/owlv2-base-patch16-ensemble"),
-        box_threshold=float(settings.get("box_threshold", 0.05)),
-        max_texts=int(settings.get("max_texts", 16)),
-        max_batch=int(settings.get("max_batch", 8)),
-        name="detector",
-    )
+    name = settings.get("model", "google/owlv2-base-patch16-ensemble")
+    common = {
+        "box_threshold": float(settings.get("box_threshold", 0.05)),
+        "max_texts": int(settings.get("max_texts", 16)),
+        "name": "detector",
+    }
+    if "sam3" in name.lower():
+        model = Sam3Detector(name, max_batch=int(settings.get("max_batch", 4)),
+                             max_units=int(settings.get("max_units", 4)), **common)  # fmt: skip
+    else:
+        model = Owlv2Detector(name, max_batch=int(settings.get("max_batch", 8)), **common)
     return _slot("detector", model, settings, shared, "float32", None)
 
 
