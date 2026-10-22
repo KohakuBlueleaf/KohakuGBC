@@ -38,7 +38,8 @@ class Fig:
         ax.add_patch(patches.FancyBboxPatch((x, y), w, h, boxstyle=style, facecolor=PAPER,
                                             edgecolor=colour, lw=2.0, zorder=3))  # fmt: skip
         bar = patches.FancyBboxPatch((x, y + h - 0.36), w, 0.36, boxstyle=style,
-                                     facecolor=colour, edgecolor=colour, lw=2.0, zorder=3)  # fmt: skip
+                                     facecolor=colour, edgecolor=colour, lw=2.0,
+                                     zorder=3)  # fmt: skip
         ax.add_patch(bar)
         ax.text(x + 0.1, y + h - 0.18, title, fontsize=self.s - 0.5, color=PAPER,
                 fontweight="bold", va="center", family="monospace", zorder=4)  # fmt: skip
