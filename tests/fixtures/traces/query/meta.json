@@ -19,7 +19,7 @@
     "--schedule",
     "stream",
     "--image_list",
-    "C:\\Users\\apoll\\Desktop\\code\\Project\\KohakuGBC\\runs\\traces\\poc30\\images.txt",
+    "runs/traces/poc30/images.txt",
     "--workers",
     "16",
     "--run_name",
