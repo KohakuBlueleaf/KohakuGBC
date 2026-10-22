@@ -153,14 +153,17 @@ edge, its label is a phrase of the parent's caption, and the child's box lies in
 
 ### The program: one image job
 
-![The GBC program as a node graph: the root, the decision loop of rounds and coverage, the relational questions, the graph; and what a round runs per region](docs/assets/workflow.jpg)
+![GBC on one image: the root names objects and finds them; their regions wait in a frontier; a round runs every region as its own job (seen before? describe, find parts) and the parts join the frontier; a decision runs another round, asks for objects not covered yet, or ends; relation questions run over groups of nodes; the graph](docs/assets/workflow.jpg)
 
-Every image runs this one program, but each takes its own path through it: the root's reply
-decides how many regions there are, a region already seen is merged instead of described, and
-rounds go on until the node budget is met. Every step waits for the reply before it, so the work
-cannot be batched stage by stage across images without waiting for the slowest one; the machine
-instead runs each image's path and batches whatever calls are ready
-(`scripts/docs/workflow.py`).
+The root describes the image and finds the objects it names; a round runs every waiting region
+as its own job (seen before? describe it, find its parts), and the parts it finds wait for the
+next round. A decision then runs another round one level deeper, asks the VLM what the image
+still holds and adds those objects, or ends with the relation questions. Every step marked ×?
+spawns as many jobs as its reply names, and the decision how many rounds run, so each image
+grows its own workflow while it runs: from 3 VLM requests on one image to more than 30 on
+another. That work cannot be batched stage by stage across images without waiting for the
+slowest one; the machine instead runs every job as soon as its inputs exist and batches whatever
+calls are ready, across images (`scripts/docs/workflow.py`).
 
 `gbc.kir` is a plain sequential program; this is its top level:
 
