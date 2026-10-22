@@ -69,42 +69,22 @@ def test_configuration_errors_are_listed_together():
     assert "engines.detect: no entry" in text and "engines.embed: no entry" in text
 
 
-@pytest.mark.serial
-def test_regions_of_a_wave_run_side_by_side():
-    # One job, every VLM request 50 ms, room for all of them: the job takes far less than its
-    # requests one after another
-    trace = FIXTURES / "text"
-    asked, job = 0, None
-    for item in TraceJobs(trace):
-        models = ReplayModels(Trace(trace))
-        reference(item.inputs, models)
-        if len(models.asked) > asked:
-            asked, job = len(models.asked), item
+def one_job(trace: Path, job, latency_ms: float) -> float:
     layers = {
-        "engines": engines(trace, latency_ms=50.0, capacity=64),
+        "engines": engines(trace, latency_ms=latency_ms, capacity=64),
         "source": {"kind": "trace", "path": str(trace)},
     }
-    machine, _, sink = build(layers)
+    machine, _, _ = build(layers)
     with machine:
         start = time.time()
         handle = machine.submit(job.inputs, key=job.key)
         assert handle.result(timeout=60).ok
-        wall = time.time() - start
-    assert asked >= 8
-    assert wall < 0.5 * asked * 0.05, (wall, asked)
+        return time.time() - start
 
 
-@pytest.mark.serial
-def test_vlm_lane_is_kept_full():
-    # 30 jobs on a VLM lane of 8 at 20 ms per request: the run takes at most 1.4x the lane's own
-    # floor (every request over the capacity)
-    trace = FIXTURES / "text"
-    models = ReplayModels(Trace(trace))
-    for item in TraceJobs(trace):
-        reference(item.inputs, models)
-    floor = len(models.asked) * 6 * 0.02 / 8
+def full_lane(trace: Path, latency_ms: float) -> float:
     layers = {
-        "engines": engines(trace, latency_ms=20.0, capacity=8),
+        "engines": engines(trace, latency_ms=latency_ms, capacity=8),
         "source": {"kind": "trace", "path": str(trace), "repeat": 6},
         "machine": {"vlm_waiting": 16},
     }
@@ -112,4 +92,37 @@ def test_vlm_lane_is_kept_full():
     records, _, _ = run(layers)
     wall = time.time() - start
     assert all(r.ok for r in records) and len(records) == 30
-    assert wall < 1.4 * floor + 1.0, (wall, floor)
+    return wall
+
+
+@pytest.mark.serial
+def test_regions_of_a_wave_run_side_by_side():
+    # One job, room for all of its VLM requests: what 50 ms per request adds to the job's time
+    # (beside the same job at 1 ms, the runner's own overhead) is far less than the requests one
+    # after another
+    trace = FIXTURES / "text"
+    asked, job = 0, None
+    for item in TraceJobs(trace):
+        models = ReplayModels(Trace(trace))
+        reference(item.inputs, models)
+        if len(models.asked) > asked:
+            asked, job = len(models.asked), item
+    base = one_job(trace, job, 1.0)
+    wall = one_job(trace, job, 50.0)
+    assert asked >= 8
+    assert wall - base < 0.5 * asked * 0.05, (wall, base, asked)
+
+
+@pytest.mark.serial
+def test_vlm_lane_is_kept_full():
+    # 30 jobs on a VLM lane of 8: what 50 ms per request adds to the run (beside the same run at
+    # 1 ms, the runner's own overhead) is at most 1.4x the lane's floor, every request over the
+    # capacity
+    trace = FIXTURES / "text"
+    models = ReplayModels(Trace(trace))
+    for item in TraceJobs(trace):
+        reference(item.inputs, models)
+    floor = len(models.asked) * 6 * 0.05 / 8
+    base = full_lane(trace, 1.0)
+    wall = full_lane(trace, 50.0)
+    assert wall - base < 1.4 * floor, (wall, base, floor)
