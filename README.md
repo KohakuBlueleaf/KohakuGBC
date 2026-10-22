@@ -18,6 +18,8 @@ control flow differs per image and cannot be batched across images by hand. Koha
 that process once, as a sequential KIR program; Togeari runs many images at once, overlaps every
 call the sequential run cannot tell apart, and turns their model calls into batched engine calls.
 
+![KohakuGBC: images admitted as jobs of the one GBC program, whose steps call four lanes that batch across images onto engine units; each job ends as a GBC graph](docs/assets/architecture.jpg)
+
 **Contents:** [Highlights](#highlights) · [Install](#install) · [Quick start](#quick-start) ·
 [How it works](#how-it-works) · [Configuration](#configuration) · [Output](#output) ·
 [Faithful to GBC](#faithful-to-gbc) · [Measured](#measured) ·
