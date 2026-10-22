@@ -6,6 +6,7 @@ send results from their own threads. State (capacity, load, readiness, submits t
 each connection when it changes, and at least every ``heartbeat_s``.
 """
 
+import contextlib
 import queue
 import threading
 import time
@@ -83,7 +84,8 @@ class EngineHost:
             self.listener.close()
         for c in list(self.connections):
             c.alive = False
-            c.conn.close()
+            with contextlib.suppress(OSError):
+                c.conn.close()
         for unit in self.units.values():
             unit.stop()
 
@@ -182,7 +184,9 @@ class EngineHost:
             self.connections.remove(c)
         for ticket in list(c.tickets.values()):
             c.unit.cancel(ticket)
-        c.conn.close()
+        # ``stop`` may have closed it already
+        with contextlib.suppress(OSError):
+            c.conn.close()
 
     def _states(self) -> None:
         now = time.monotonic()

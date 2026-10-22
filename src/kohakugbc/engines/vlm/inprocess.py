@@ -28,26 +28,11 @@ from vllm.sampling_params import SamplingParams, StructuredOutputsParams
 from vllm.v1.engine.async_llm import AsyncLLM
 
 from kohakugbc.engines import placement
+from kohakugbc.engines.adapters import VllmChatAdapter
 from kohakugbc.engines.registry import Slot, entry
 from kohakugbc.nodes.specs import chat as specs
 
 _START_LOCK = threading.Lock()
-
-
-class VllmChatAdapter:
-    """The ``chat`` node's request handed to the unit as it is; the reply text back."""
-
-    protocols = {"vllm"}
-    light = True
-
-    def check(self, signature) -> list[str]:
-        return []
-
-    def prepare(self, inputs: dict, protocol: str) -> dict:
-        return inputs["request"]
-
-    def decode(self, raw, protocol: str) -> str:
-        return raw
 
 
 class VllmUnit(EngineBase):

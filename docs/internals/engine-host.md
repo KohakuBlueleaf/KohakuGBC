@@ -21,6 +21,23 @@ engines = {
 }
 ```
 
+When the machine's node cannot build the hosted entry (vLLM on a Linux node, a machine on
+Windows), the lane names what it needs instead of `runs`:
+
+```python
+engines = {
+    "vlm": {
+        "entry": "remote",
+        "hosts": ["10.0.0.5:7593/vllm-0"],
+        "adapter": "vllm",
+        "kind": "stream",
+    }
+}
+```
+
+`adapter` is one of `kohakugbc.engines.adapters.ADAPTERS` (`vllm`, `torch`, `torch-text`);
+`kind`, `protocol`, `max_batch` and `wait_ms` describe the units.
+
 ## Wire
 
 Pickled tuples over `multiprocessing.connection`, authenticated by a shared key
@@ -50,3 +67,10 @@ with the lane's adapter.
 
 The lane treats a remote unit like any other: it fails over on `UnitError`, and selection,
 batching and admission read its capacity and load.
+
+## Checks
+
+`tests/engines/test_remote.py`: remote stream and batch units keep Togeari's engine contract
+(`check_engine`, with the host killed mid-check: the next submit is a `UnitError`); the real
+detector in a `gbc host` process gives the machine the PoC's graphs; a machine on Windows runs on
+vLLM served by `gbc host` in WSL (`KOHAKUGBC_REMOTE_VLM`).
