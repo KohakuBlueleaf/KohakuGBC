@@ -6,9 +6,10 @@ from togeari.adapters import TorchAdapter
 
 
 class VllmChatAdapter:
-    """The ``chat`` node's request handed to a ``vllm`` unit as it is; the reply text back."""
+    """The ``chat`` node's request handed as it is to a unit that takes requests (``vllm``, or
+    ``request``: an engine of its own, such as ``examples/qwen35``); the reply text back."""
 
-    protocols = {"vllm"}
+    protocols = {"vllm", "request"}
     light = True
 
     def check(self, signature) -> list[str]:

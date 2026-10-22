@@ -1,5 +1,9 @@
 """Every builtin entry, registered on import; entries whose engine library is not installed
-(vLLM, torch) are absent, and naming one is a configuration error."""
+(vLLM, torch) are absent, and naming one is a configuration error. Installed packages add
+entries through the ``kohakugbc.entries`` entry-point group (each names a module that registers
+its entries on import); one that fails to import is listed in ``PLUGIN_ERRORS``."""
+
+from importlib.metadata import entry_points
 
 from kohakugbc.engines import host, python
 from kohakugbc.engines.replay import entries as replay
@@ -15,3 +19,10 @@ except ImportError:
     torch_entries = None
 
 MODULES = tuple(m for m in (api, host, python, replay, inprocess, torch_entries) if m is not None)
+
+PLUGINS, PLUGIN_ERRORS = [], {}
+for _point in entry_points(group="kohakugbc.entries"):
+    try:
+        PLUGINS.append(_point.load())
+    except Exception as _exc:  # noqa: BLE001
+        PLUGIN_ERRORS[_point.name] = repr(_exc)
