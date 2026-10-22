@@ -153,6 +153,15 @@ edge, its label is a phrase of the parent's caption, and the child's box lies in
 
 ### The program: one image job
 
+![The GBC program as a node graph: the root, the decision loop of rounds and coverage, the relational questions, the graph; and what a round runs per region](docs/assets/workflow.jpg)
+
+Every image runs this one program, but each takes its own path through it: the root's reply
+decides how many regions there are, a region already seen is merged instead of described, and
+rounds go on until the node budget is met. Every step waits for the reply before it, so the work
+cannot be batched stage by stage across images without waiting for the slowest one; the machine
+instead runs each image's path and batches whatever calls are ready
+(`scripts/docs/workflow.py`).
+
 `gbc.kir` is a plain sequential program; this is its top level:
 
 ```
