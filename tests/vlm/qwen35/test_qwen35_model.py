@@ -9,13 +9,13 @@ import torch
 import torch.nn.functional as F
 from transformers import AutoProcessor
 
+from kohakugbc.engines.vlm.qwen35 import PREFER
 from kohakugbc.nodes.specs import chat as specs
-from qwen35.model.forward import Step
-from qwen35.ops import Ops
-from qwen35.serve.graphs import DecodeGraphs
-from qwen35.serve.inputs import Preparer
-from qwen35.serve.pools import Pools, plan
-from qwen35.unit import PREFER
+from kohakugbc_models.vlm.qwen35.model.forward import Step
+from kohakugbc_models.vlm.qwen35.ops import Ops
+from kohakugbc_models.vlm.qwen35.serve.graphs import DecodeGraphs
+from kohakugbc_models.vlm.qwen35.serve.inputs import Preparer
+from kohakugbc_models.vlm.qwen35.serve.pools import Pools, plan
 
 pytestmark = [pytest.mark.gpu, pytest.mark.weights]
 

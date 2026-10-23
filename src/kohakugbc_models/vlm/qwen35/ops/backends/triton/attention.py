@@ -13,8 +13,8 @@ import torch
 import triton
 import triton.language as tl
 
-from qwen35.ops import register
-from qwen35.ops.backends.reference import write_cache
+from kohakugbc_models.vlm.qwen35.ops import register
+from kohakugbc_models.vlm.qwen35.ops.backends.reference import write_cache
 
 
 @triton.jit

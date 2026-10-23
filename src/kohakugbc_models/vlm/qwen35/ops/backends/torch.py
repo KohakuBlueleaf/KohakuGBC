@@ -5,8 +5,8 @@ sequence (prefill)."""
 import torch
 import torch.nn.functional as F
 
-from qwen35.ops import register
-from qwen35.ops.backends.reference import gather_rows, spans, write_cache
+from kohakugbc_models.vlm.qwen35.ops import register
+from kohakugbc_models.vlm.qwen35.ops.backends.reference import gather_rows, spans, write_cache
 
 
 @register("conv", "torch", graph_safe=True)

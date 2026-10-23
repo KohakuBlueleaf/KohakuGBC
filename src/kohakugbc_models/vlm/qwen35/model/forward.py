@@ -6,6 +6,7 @@ pages already hold; the forward returns the logits after each sequence's last ne
 norms, rotary embedding and gated norm round where the reference model rounds.
 """
 
+import contextlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,9 +16,8 @@ import torch.nn.functional as F
 from huggingface_hub import snapshot_download
 from transformers import Qwen3_5ForConditionalGeneration
 
-from kohakugbc.engines.placement import LOADING
-from qwen35.model.shape import Shape
-from qwen35.ops import Ops
+from kohakugbc_models.vlm.qwen35.model.shape import Shape
+from kohakugbc_models.vlm.qwen35.ops import Ops
 
 
 @dataclass
@@ -58,14 +58,16 @@ def rotate_half(x: torch.Tensor) -> torch.Tensor:
 class Model:
     """The checkpoint at ``path`` on ``device``."""
 
-    def __init__(self, path: str, device: str = "cuda:0", dtype=torch.bfloat16):
-        """``path``: a checkpoint folder, or a Hugging Face model name (downloaded once)."""
+    def __init__(self, path: str, device: str = "cuda:0", dtype=torch.bfloat16, loading=None):
+        """``path``: a checkpoint folder, or a Hugging Face model name (downloaded once);
+        ``loading``: a lock held while the weights load (transformers sets torch's process-wide
+        default dtype meanwhile)."""
         if not Path(path).is_dir():
             path = snapshot_download(path)
         self.path, self.device, self.dtype = path, torch.device(device), dtype
         config = json.loads((Path(path) / "config.json").read_text(encoding="utf-8"))
         self.shape = Shape.from_config(config)
-        with LOADING:
+        with loading or contextlib.nullcontext():
             self.hf = Qwen3_5ForConditionalGeneration.from_pretrained(path, dtype=dtype)
         self.hf = self.hf.to(self.device).eval()
         lm = self.hf.model.language_model

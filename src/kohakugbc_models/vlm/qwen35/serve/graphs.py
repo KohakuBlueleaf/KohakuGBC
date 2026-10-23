@@ -8,7 +8,7 @@ before its capture.
 
 import torch
 
-from qwen35.model.forward import Step
+from kohakugbc_models.vlm.qwen35.model.forward import Step
 
 
 def buckets(max_batch: int) -> list[int]:

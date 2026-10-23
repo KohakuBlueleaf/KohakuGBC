@@ -3,8 +3,8 @@ saved state, the final states written back to the pool."""
 
 from fla.ops.gated_delta_rule import chunk_gated_delta_rule
 
-from qwen35.ops import register
-from qwen35.ops.backends.reference import gates
+from kohakugbc_models.vlm.qwen35.ops import register
+from kohakugbc_models.vlm.qwen35.ops.backends.reference import gates
 
 
 @register("delta", "fla")

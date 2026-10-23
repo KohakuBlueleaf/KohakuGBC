@@ -44,7 +44,8 @@ call the sequential run cannot tell apart, and turns their model calls into batc
 pip install kohakugbc                 # program, machine, API and replay engines
 pip install "kohakugbc[torch]"        # detector (OWLv2, SAM 3) and embedder on torch
 pip install "kohakugbc[vllm]"         # the VLM in-process through vLLM (Linux)
-pip install -e examples/qwen35        # the qwen35 engine (Windows and Linux; from a clone)
+pip install "kohakuvllm @ git+https://github.com/KohakuBlueleaf/KohakuvLLM"   # our vLLM parts
+pip install "kohakugbc[qwen35]"       # the qwen35 VLM engine (Windows and Linux)
 ```
 
 Wheels carry the Rust extension `kohakugbc._rs` (graph resolution). From a clone, with a Rust
@@ -53,8 +54,7 @@ toolchain:
 ```
 git clone https://github.com/KohakuBlueleaf/KohakuGBC && cd KohakuGBC
 uv venv -p 3.13
-uv pip install -e ".[torch,dev]"      # add torch from the index matching your driver
-uv pip install -e examples/qwen35
+uv pip install -e ".[torch,qwen35,dev]"   # add torch from the index matching your driver
 gbc doctor
 ```
 
@@ -141,7 +141,7 @@ with machine:
 |---|---|---|
 | GBC program | `kohakugbc.program`, `kohakugbc.nodes`, `kohakugbc.graph` | `gbc.kir` (one image job), the node library `gbc`, controls, records and graph resolution (Python reference; Rust in `kohakugbc._rs`, equal by digest) |
 | GBC machine | `kohakugbc.machine`, `kohakugbc.io` | the program on Togeari: one lane per engine slot, bindings, admission, sources, sinks, configuration layers |
-| GBC engines | `kohakugbc.engines`, `examples/qwen35` | entries per slot, the placement plan, engines on other nodes, replay engines for runs without models |
+| GBC engines | `kohakugbc.engines`, `kohakugbc_models` | entries per slot, the placement plan, engines on other nodes, replay engines for runs without models |
 
 ### The GBC graph
 
@@ -253,7 +253,7 @@ requests in flight at once.
 
 | Slot | Node | Lane | Entries |
 |---|---|---|---|
-| `vlm` | `chat` | stream units | `api`, `vllm`, `qwen35` (installed with `examples/qwen35`), `replay`, `remote` |
+| `vlm` | `chat` | stream units | `api`, `vllm`, `qwen35` (the `qwen35` extra), `replay`, `remote` |
 | `detect` | `detector` | batch units | `torch` (OWLv2 or SAM 3), `replay`, `remote` |
 | `embed` | `embedder` | batch units | `torch` (EmbeddingGemma), `replay`, `remote` |
 | `cpu` | crops, pictures, parsing, resolution | worker pool | `python` (threads or processes), `remote` |
@@ -269,7 +269,7 @@ does not fit before any weight loads.
 |---|---|---|---|
 | `api` | vlm | any OpenAI-compatible server or Anthropic's Messages API, one unit per endpoint | `flavour` places the JSON schema and turns Qwen3.5's thinking off per server kind; rate limits, health checks, `X-GBC-Request` digests |
 | `vllm` | vlm | vLLM's `AsyncLLM` in this process, one unit per device group | tensor parallel over a unit's devices; its reservation in the placement plan |
-| `qwen35` | vlm | a Qwen3.5 engine written for this workload ([examples/qwen35](examples/qwen35/README.md)) | packed mixed steps over state slots and paged KV, prefix snapshots, Triton kernels raced against references, decode CUDA graphs, xgrammar masks with forced-token jumps, a vision stage of its own |
+| `qwen35` | vlm | a Qwen3.5 engine written for this workload ([kohakugbc_models/vlm/qwen35](src/kohakugbc_models/vlm/qwen35/README.md)) | packed mixed steps over state slots and paged KV, prefix snapshots, Triton kernels raced against references, decode CUDA graphs, xgrammar masks with forced-token jumps, a vision stage of its own |
 | `torch` | detect | OWLv2 (`google/owlv2-base-patch16-ensemble`, the PoC's) or SAM 3 (`facebook/sam3`: GBC's own model, [kohakugbc_models.detect](src/kohakugbc_models/detect)) | one unit per device; OWLv2 in float16 at batch 1 reproduces the PoC's boxes exactly; SAM 3 with fused kernels per arch, CUDA graphs, optional fp8, a measured memory plan |
 | `torch` | embed | EmbeddingGemma (GBC's own model, [kohakugbc_models.embed](src/kohakugbc_models/embed)) | a batch packed into one token stream, varlen attention, CUDA graphs; equal to sentence-transformers' vectors in float32 |
 | `python` | cpu | Togeari's Python workers | threads or processes |
@@ -402,17 +402,18 @@ src/kohakugbc/
   nodes/          the node library gbc: root, regions, relations, specs (chat, detect, parse)
   graph/          records, resolution to GBC graphs, digests
   machine/        build, configuration layers, the machine module
-  engines/        registry, placement, adapters, api/, inprocess/ (vLLM), torch/, host/, replay/
+  engines/        registry, placement, adapters, vlm/ (api, vLLM in-process, qwen35), torch/,
+                  host/, replay/
   io/             sources (folder, jsonl, trace), sinks (graphs, memory)
   cli/            gbc
 src/kohakugbc_models/     the models GBC runs itself, standalone of the program and machine
   detect/         GBC's own SAM 3 (vision, fusion, masks, memory plan), mask boxes
   embed/          GBC's own EmbeddingGemma over packed token streams
+  vlm/qwen35/     the Qwen3.5 engine: forward, ops (Triton, FLA), pools, grammar, graphs, loop
   kernels/        op registry, per-card tuning, CUDA graphs, fp8; backends eager / compile /
                   triton / tilelang (attention, varlen, box bias, mask box, fp8 producers)
   numerics/       error profiles against an fp64 ruler
 src/kohakugbc-rust/       graph resolution in Rust (kohakugbc._rs)
-examples/qwen35/      the qwen35 engine
 configs/              machine and engine configurations
 scripts/              trace recording, benchmarks, docs figures
 docs/                 concepts, guides, internals, performance
@@ -428,7 +429,7 @@ tests/                program, graph, machine, engines; fixtures: recorded PoC t
 | [docs/internals](docs/internals/README.md) | the machine, the placement plan, engines on other nodes, the program and its differences from the PoC, traces, graph resolution |
 | [docs/performance](docs/performance/README.md) | the machine on pseudo engines, on real engines, the VLM engines alone, the detector and the embedder on six GPUs and the CPU |
 | [docs/internals/kernels.md](docs/internals/kernels.md) | the kernel package: registry, tuning, graphs, fp8, every op per arch |
-| [examples/qwen35](examples/qwen35/README.md) | the Qwen3.5 engine: settings, design, tests |
+| [kohakugbc_models/vlm/qwen35](src/kohakugbc_models/vlm/qwen35/README.md) | the Qwen3.5 engine: settings, design, tests |
 
 ## Checks
 
@@ -436,8 +437,9 @@ tests/                program, graph, machine, engines; fixtures: recorded PoC t
 python -m pytest tests -q -m "not gpu and not serial and not weights" -n auto
 python -m pytest tests -q -m serial                   # wall-clock bounds, alone
 python -m pytest tests -q -m "gpu or weights"         # real models, on cuda:0
-QWEN35_MODEL=path/to/Qwen3.5-4B python -m pytest examples/qwen35/tests
+QWEN35_MODEL=path/to/Qwen3.5-4B python -m pytest tests/vlm/qwen35
 python scripts/bench/pseudo_machine.py                # the machine on pseudo engines
+scripts/bench/machine/card.sh CARD TAG                # one machine per card, every metric on disk
 python scripts/bench/real_machine.py configs/machine/qwen35_local.py --name local   # real engines
 python scripts/bench/vlm_units.py --trace runs/traces/poc30/text --name qwen35 --engine '{"entry": "qwen35", "model": "..."}'
 ```

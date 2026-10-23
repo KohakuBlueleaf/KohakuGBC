@@ -10,12 +10,14 @@ run it. Three layers, split the way Togeari splits a job:
 - `src/kohakugbc/engines/`: the engines filling Togeari's contracts (`vlm/`, `torch/`, `host/`,
   `replay/`).
 - `src/kohakugbc_models/`: a standalone package (never imports `kohakugbc`) the torch engine
-  builds: `detect/` and `embed/` the models GBC runs itself (SAM 3, EmbeddingGemma), `kernels/`
+  builds: `detect/`, `embed/` and `vlm/` the models GBC runs itself (SAM 3, EmbeddingGemma, the
+  Qwen3.5 engine; their entries sit in `kohakugbc/engines`), `kernels/`
   their kernels (registry, per-arch backends, tuning, CUDA graphs, fp8), `numerics/` error
   profiles against an fp64 ruler.
 - `src/kohakugbc-rust/`: `kohakugbc._rs`, graph resolution in Rust (crate `Cargo.toml` at the
   root).
-- `examples/qwen35/`: the specialised Qwen3.5 engine, its own package on top of the engines.
+- vLLM changes (frontend or backend) live in KohakuvLLM, a separate drop-in plugin repo; this
+  repo holds the engine entries and refers to it.
 - `configs/` (`engines/`, `machine/`), `scripts/` (`trace/`, `bench/`), `docs/` (`concepts/`,
   `guides/`, `internals/`, `performance/`).
 - `plans/` and `runs/` are gitignored.
@@ -32,8 +34,8 @@ cargo clippy --all-targets -- -D warnings
 cargo test --no-default-features
 .venv\Scripts\python.exe -m pytest tests -q -m "not gpu and not serial and not weights" -n auto --maxprocesses 8 --dist worksteal
 .venv\Scripts\python.exe -m pytest tests -q -m "serial and not gpu"
-.venv\Scripts\python.exe -m black --line-length 100 src tests examples scripts
-.venv\Scripts\python.exe -m ruff check src tests examples scripts
+.venv\Scripts\python.exe -m black --line-length 100 src tests scripts configs
+.venv\Scripts\python.exe -m ruff check src tests scripts configs
 .venv\Scripts\python.exe scripts\check_imports.py
 .venv\Scripts\python.exe scripts\check_md_black.py .
 ```
@@ -45,7 +47,8 @@ wall-clock bound or a scheduling outcome and run alone.
 
 - Import boundary (`scripts/check_imports.py`): the program layer imports only `kohakunode`,
   image libraries and itself; the machine and io import `togeari`; engines import torch,
-  transformers and vLLM (extras), never the machine; `examples/qwen35` sits on the engines.
+  transformers and vLLM (extras), never the machine; `kohakugbc_models` never imports
+  `kohakugbc`.
 - The GBC program and its nodes never name a device, an engine or a model; engines never name a
   GBC node.
 - Code style: blank lines between logical groups; a short comment above a group says what it

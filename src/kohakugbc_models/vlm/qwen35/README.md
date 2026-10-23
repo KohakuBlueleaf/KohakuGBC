@@ -1,13 +1,13 @@
-# kohakugbc-qwen35
+# qwen35
 
 A VLM engine written for one model family, Qwen3.5 (2B, 4B, 9B), as KohakuGBC's `vlm` slot
-entry `qwen35`. It is an example of a specialised engine behind Togeari's stream contract: the
-machine sees the same unit as for vLLM or an API.
+entry `qwen35` (`kohakugbc.engines.vlm.qwen35`, over the model code here). It is a specialised
+engine behind Togeari's stream contract: the machine sees the same unit as for vLLM or an API.
 
 ## Install and run
 
 ```
-pip install -e examples/qwen35
+pip install "kohakugbc[qwen35]"
 GBC_IMAGES=path/to/images gbc run configs/machine/qwen35_local.py
 ```
 
@@ -15,7 +15,7 @@ GBC_IMAGES=path/to/images gbc run configs/machine/qwen35_local.py
 (`Qwen/Qwen3.5-4B`, or the folder in `QWEN35_MODEL`), the detector on the same device, the
 embedder on the CPU. Graphs go to `runs/machine/qwen35_local/graphs.jsonl` (`GBC_OUT` moves
 them). On an RTX 4090 it makes a graph in about 3 s per image
-([measurements](../../docs/performance/real-engines.md)).
+([measurements](../../../../docs/performance/real-engines.md)).
 
 The entry in a configuration:
 
@@ -66,22 +66,22 @@ one with a unit error).
 | Engine | `serve/engine.py` | one thread: admits requests while a slot and pages are free (resuming from the longest stored snapshot), runs each step as one forward over the decode tokens and the prompt chunks due, fills the grammar masks while the device runs, draws, accepts |
 | Graphs | `serve/graphs.py` | decode steps captured per batch bucket |
 | Grammar | `serve/grammar.py` | xgrammar token masks per JSON schema; the forced-token jump |
-| Unit | `unit.py` | the stream contract: submit, cancel, capacity, load, stats; the placement plan's reservation |
+| Unit | `kohakugbc/engines/vlm/qwen35.py` | the stream contract: submit, cancel, capacity, load, stats; the placement plan's reservation |
 
 ## Tests
 
 ```
-QWEN35_MODEL=path/to/Qwen3.5-4B pytest examples/qwen35/tests
+QWEN35_MODEL=path/to/Qwen3.5-4B pytest tests/vlm/qwen35
 ```
 
-- `test_ops.py`: every backend against the eager reference on packed sequences in shuffled
+- `test_qwen35_ops.py`: every backend against the eager reference on packed sequences in shuffled
   slots and pages (outputs, states written back, untouched slots); each check is shown able to
   fail on a wrong state or page table.
-- `test_model.py`: the forward against transformers' on a recorded request with its image
+- `test_qwen35_model.py`: the forward against transformers' on a recorded request with its image
   (argmax agreement and KL over 48 reply tokens; a forward without the image is caught);
   resuming from a snapshot at either boundary equals a full prefill (a broken convolution state
   is caught); a captured decode graph equals the eager decode.
-- `test_unit.py`: Togeari's engine contract checks on recorded GBC requests in three
+- `test_qwen35_unit.py`: Togeari's engine contract checks on recorded GBC requests in three
   configurations (vLLM-like schemas; compact JSON with `exact`; `string` with bfloat16 states and
   both boundaries); the machine with this entry as its VLM.
 
@@ -90,4 +90,4 @@ QWEN35_MODEL=path/to/Qwen3.5-4B pytest examples/qwen35/tests
 `scripts/bench/vlm_units.py` runs any `vlm` entry through the unit contract on recorded
 requests and writes per-request results, memory and the unit's stats;
 `scripts/bench/real_machine.py` runs the machine on recorded jobs and compares its graphs with
-the PoC's. Results: [docs/performance/real-engines.md](../../docs/performance/real-engines.md).
+the PoC's. Results: [docs/performance/real-engines.md](../../../../docs/performance/real-engines.md).

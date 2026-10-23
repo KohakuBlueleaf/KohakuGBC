@@ -5,8 +5,8 @@ shown able to fail (a wrong initial state, a wrong page table)."""
 import pytest
 import torch
 
-from qwen35.ops import REGISTRY, UNAVAILABLE, Ops
-from qwen35.ops import backends as _backends  # noqa: F401
+from kohakugbc_models.vlm.qwen35.ops import REGISTRY, UNAVAILABLE, Ops
+from kohakugbc_models.vlm.qwen35.ops import backends as _backends  # noqa: F401
 
 pytestmark = pytest.mark.gpu
 if not torch.cuda.is_available():

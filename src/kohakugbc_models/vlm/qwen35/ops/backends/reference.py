@@ -4,7 +4,7 @@ input dtype. Every backend is checked against these (``tests/test_ops.py``)."""
 import torch
 import torch.nn.functional as F
 
-from qwen35.ops import register
+from kohakugbc_models.vlm.qwen35.ops import register
 
 L2_EPS = 1e-6
 

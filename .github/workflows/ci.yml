@@ -66,9 +66,9 @@ jobs:
       - name: Install
         run: pip install black ruff
       - name: black
-        run: python -m black --check --line-length 100 src tests examples scripts configs
+        run: python -m black --check --line-length 100 src tests scripts configs
       - name: ruff
-        run: python -m ruff check src tests examples scripts configs
+        run: python -m ruff check src tests scripts configs
       - name: Import boundary
         run: python scripts/check_imports.py
       - name: Markdown code blocks

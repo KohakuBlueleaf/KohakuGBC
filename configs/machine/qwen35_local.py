@@ -1,6 +1,6 @@
-# The whole GBC machine on one GPU: the qwen35 example engine as the VLM, OWLv2 on the same
+# The whole GBC machine on one GPU: the qwen35 engine as the VLM, OWLv2 on the same
 # device, the embedder on the CPU; graphs of every image under GBC_IMAGES.
-# pip install -e examples/qwen35
+# pip install "kohakugbc[qwen35]"
 # GBC_IMAGES=path/to/images gbc run configs/machine/qwen35_local.py
 
 import os

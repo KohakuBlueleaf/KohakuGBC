@@ -7,7 +7,7 @@ from togeari.adapters import TorchAdapter
 
 class VllmChatAdapter:
     """The ``chat`` node's request handed as it is to a unit that takes requests (``vllm``, or
-    ``request``: an engine of its own, such as ``examples/qwen35``); the reply text back."""
+    ``request``: an engine of its own, such as ``qwen35``); the reply text back."""
 
     protocols = {"vllm", "request"}
     light = True

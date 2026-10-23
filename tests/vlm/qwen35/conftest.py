@@ -12,7 +12,7 @@ from kohakugbc.io.sources import TraceJobs
 from kohakugbc.nodes.specs.replay import ReplayModels
 from kohakugbc.nodes.specs.trace import Trace
 from kohakugbc.program.reference import run as reference
-from qwen35.model.forward import Model
+from kohakugbc_models.vlm.qwen35.model.forward import Model
 
 TRACE = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "traces" / "text"
 MODEL = os.environ.get("QWEN35_MODEL", "")

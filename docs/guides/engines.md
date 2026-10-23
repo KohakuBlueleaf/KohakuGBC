@@ -30,6 +30,7 @@ engines = {
 | `protocol` | `"openai"` (`/chat/completions`) or `"anthropic"` (`/messages`) |
 | `flavour` | where an OpenAI-compatible server takes the JSON schema and how it turns Qwen3.5's thinking off: `vllm`, `sglang`, `llama.cpp`, `openai`, `openrouter` |
 | `model`, `sampling` | the model name; extra body fields (`top_p`, `min_p`, ...) |
+| `structured` | `grammar` (default): the request's JSON schema goes to the server; `prompt`: the prompt alone asks for the JSON |
 | `endpoints` | per unit: `base_url`, `max_inflight` (32), `rate` (requests per second, or `[rate, burst]`), `api_key_env`, `headers`, `name` |
 | `timeout_s`, `connect_timeout_s`, `health_path` | per request; per connection (past it the unit is down); the GET that brings a down unit back |
 | `metrics` | `"vllm"`: the server's running and waiting counts in the unit's load report |
@@ -61,23 +62,35 @@ engines = {
 | `units`, `devices` | units, and per unit the CUDA devices it uses (several: tensor parallel over them) |
 | `gpu_memory_utilization`, `max_model_len`, `max_num_seqs`, `dtype` | vLLM's own (0.5, 16384, 64, `bfloat16`) |
 | `capacity` | requests in flight per unit (twice `max_num_seqs`) |
+| `structured`, `retries` | `prompt` (default): the prompts describe the JSON, and a reply GBC's reader cannot read as the schema's object is asked again up to `retries` (1) times; `grammar`: vLLM constrains decoding to the schema |
 | `engine_args`, `sampling` | any other `AsyncEngineArgs` field; extra `SamplingParams` fields |
+| `stats_s` | vLLM's stats line every that many seconds (0: off) |
 
-The unit builds the prompt with the model's chat template (thinking off), sends the pictures as
-the API path decodes them, and constrains the reply to the request's JSON schema; a cancelled
-request is aborted in vLLM. A script that builds a machine with this entry needs an
-`if __name__ == "__main__":` guard: vLLM starts its engine core by spawning a process.
+The unit builds the prompt with the model's chat template (thinking off) and sends the pictures
+as the API path decodes them; a cancelled request is aborted in vLLM. A script that builds a
+machine with this entry needs an `if __name__ == "__main__":` guard: vLLM starts its engine core
+by spawning a process.
 
-## The VLM in-process (the qwen35 example)
+[KohakuvLLM](https://github.com/KohakuBlueleaf/KohakuvLLM) is our own frontend and kernels for
+this engine, a drop-in vLLM plugin package (no fork or rebuild; its TESTED.md names the vLLM
+versions each part was verified on). Installed beside vLLM (`pip install
+"kohakuvllm @ git+https://github.com/KohakuBlueleaf/KohakuvLLM"`), its parts are opted into
+through the same settings, in-process or behind `vllm serve`: for example
+`engine_args={"scheduler_cls": "kohakuvllm.sched.PhasedScheduler"}`.
+`configs/machine/qwen35_card.py` is the whole machine on one card with either path (`GBC_VLM_URL`
+for a server, `scripts/bench/machine/serve.py` to start one with the same engine arguments) and
+the measured best settings.
 
-A Qwen3.5 engine written for this workload (`pip install -e examples/qwen35`; Windows and
+## The VLM in-process (qwen35)
+
+A Qwen3.5 engine written for this workload (`pip install "kohakugbc[qwen35]"`; Windows and
 Linux), one unit per device:
 
 ```python
 engines = {"vlm": {"entry": "qwen35", "model": "Qwen/Qwen3.5-4B", "memory": 0.65}}
 ```
 
-Its settings, design and tests: [examples/qwen35](../../examples/qwen35/README.md).
+Its settings, design and tests: [kohakugbc_models/vlm/qwen35](../../src/kohakugbc_models/vlm/qwen35/README.md).
 `configs/machine/qwen35_local.py` runs the whole machine on one GPU with it.
 
 ## The vision models (torch)

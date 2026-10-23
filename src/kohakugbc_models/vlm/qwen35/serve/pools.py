@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 
 import torch
 
-from qwen35.model.shape import Shape
+from kohakugbc_models.vlm.qwen35.model.shape import Shape
 
 
 @dataclass

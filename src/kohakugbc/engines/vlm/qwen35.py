@@ -1,9 +1,10 @@
-"""The ``qwen35`` entry of KohakuGBC's ``vlm`` slot: this engine behind Togeari's stream contract.
+"""The ``qwen35`` entry of KohakuGBC's ``vlm`` slot: the Qwen3.5 engine of
+``kohakugbc_models.vlm.qwen35`` behind Togeari's stream contract.
 
 ``submit`` hands the request to a pool of preparing threads (chat template, image processing,
-positions) and returns; prepared requests with images pass the vision stage
-(``qwen35.serve.vision``), then the engine thread (``qwen35.serve.engine``) answers each with
-the reply text. ``cancel`` drops the request wherever it is.
+positions) and returns; prepared requests with images pass the vision stage (``serve.vision``),
+then the engine thread (``serve.engine``) answers each with the reply text. ``cancel`` drops the
+request wherever it is. Importing ``ops.backends`` registers every op backend.
 
 Settings: ``model`` (a Qwen3.5 checkpoint folder or Hugging Face name); ``device``
 (``cuda:0``); ``memory`` (0.5: the share of the device's memory the unit holds, weights
@@ -38,16 +39,16 @@ from kohakugbc.engines import placement
 from kohakugbc.engines.adapters import VllmChatAdapter
 from kohakugbc.engines.registry import Slot, entry
 from kohakugbc.nodes.specs import chat as specs
-from qwen35.model.forward import Model
-from qwen35.ops import Ops
-from qwen35.ops import backends as _backends  # noqa: F401  (registers every backend)
-from qwen35.serve.engine import Engine, Seq, Settings
-from qwen35.serve.grammar import Grammars
-from qwen35.serve.graphs import DecodeGraphs
-from qwen35.serve.inputs import Preparer
-from qwen35.serve.pools import Pools, plan
-from qwen35.serve.steplog import StepLog
-from qwen35.serve.vision import VisionStage
+from kohakugbc_models.vlm.qwen35.model.forward import Model
+from kohakugbc_models.vlm.qwen35.ops import Ops
+from kohakugbc_models.vlm.qwen35.ops import backends as _backends  # noqa: F401
+from kohakugbc_models.vlm.qwen35.serve.engine import Engine, Seq, Settings
+from kohakugbc_models.vlm.qwen35.serve.grammar import Grammars
+from kohakugbc_models.vlm.qwen35.serve.graphs import DecodeGraphs
+from kohakugbc_models.vlm.qwen35.serve.inputs import Preparer
+from kohakugbc_models.vlm.qwen35.serve.pools import Pools, plan
+from kohakugbc_models.vlm.qwen35.serve.steplog import StepLog
+from kohakugbc_models.vlm.qwen35.serve.vision import VisionStage
 
 GIB = 1024**3
 DTYPES = {"float32": torch.float32, "bfloat16": torch.bfloat16}
@@ -169,7 +170,7 @@ class Qwen35Unit(EngineBase):
         # What this process's allocator holds unused is free to it too
         free += torch.cuda.memory_reserved(dev) - torch.cuda.memory_allocated(dev)
         before = torch.cuda.memory_allocated(dev)
-        self.model = Model(self.model_path, self.device)
+        self.model = Model(self.model_path, self.device, loading=placement.LOADING)
         shape = self.model.shape
         processor = AutoProcessor.from_pretrained(self.model.path)
         tok = processor.tokenizer

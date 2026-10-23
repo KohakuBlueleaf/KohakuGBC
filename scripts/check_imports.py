@@ -1,5 +1,5 @@
 """Check the import boundary between KohakuGBC's layers over every module of src/ (kohakugbc
-and the standalone kohakugbc_models) and examples/."""
+and the standalone kohakugbc_models)."""
 
 import ast
 import sys
@@ -21,6 +21,7 @@ RULES = {
         "kohakugbc.nodes.specs",
         "kohakugbc_models.detect",
         "kohakugbc_models.embed",
+        "kohakugbc_models.vlm",
         "togeari",
     ),
     # kohakugbc_models, never importing kohakugbc: the models GBC runs itself (below the
@@ -35,6 +36,7 @@ RULES = {
         "kohakugbc_models.kernels",
         "kohakugbc_models.numerics",
     ),
+    "kohakugbc_models.vlm": ("kohakugbc_models.vlm",),
     "kohakugbc_models.kernels": ("kohakugbc_models.kernels", "kohakugbc_models.numerics"),
     "kohakugbc_models.numerics": ("kohakugbc_models.numerics",),
     "kohakugbc.machine": (
@@ -46,7 +48,6 @@ RULES = {
     ),
     "kohakugbc.io": (*PROGRAM, "kohakugbc.io", "togeari"),
     "kohakugbc.cli": ("kohakugbc", "togeari", "kohakunode"),
-    "qwen35": ("qwen35", "kohakugbc.engines", "kohakugbc.nodes.specs", "togeari"),
 }
 
 # Third-party packages each part may use; torch, transformers and vllm only in the engines and
@@ -77,7 +78,7 @@ EXTRAS = {
     "kohakugbc_models.embed": ("numpy", "torch", "transformers", "huggingface_hub", "safetensors"),
     "kohakugbc_models.kernels": ("torch", "triton", "tilelang"),
     "kohakugbc_models.numerics": ("torch",),
-    "qwen35": (
+    "kohakugbc_models.vlm": (
         "PIL",
         "numpy",
         "torch",
@@ -92,7 +93,7 @@ EXTRAS = {
 }
 
 # Source roots scanned; a module's name is its path under its root
-ROOTS = [SRC, REPO / "examples" / "qwen35" / "src"]
+ROOTS = [SRC]
 
 
 def module_name(root: Path, path: Path) -> str:

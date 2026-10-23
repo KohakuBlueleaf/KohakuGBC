@@ -22,8 +22,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import torch
 
-from qwen35.model.forward import Step
-from qwen35.serve.inputs import Prepared
+from kohakugbc_models.vlm.qwen35.model.forward import Step
+from kohakugbc_models.vlm.qwen35.serve.inputs import Prepared
 
 
 @dataclass

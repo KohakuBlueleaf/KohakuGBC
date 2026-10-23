@@ -11,7 +11,8 @@ from togeari import WorkItem
 from togeari.testing import check_engine
 
 from kohakugbc.engines import registry
-from kohakugbc.engines.builtin import PLUGIN_ERRORS
+from kohakugbc.engines.builtin import MODULES
+from kohakugbc.engines.vlm import qwen35
 from kohakugbc.machine import build_parts
 from kohakugbc.nodes.specs.parse import load_json
 
@@ -41,7 +42,7 @@ def alike(a: str, b: str) -> bool:
 
 
 def test_entry_is_installed():
-    assert "qwen35" not in PLUGIN_ERRORS, PLUGIN_ERRORS
+    assert qwen35 in MODULES
     assert ("vlm", "qwen35") in registry.ENTRIES
 
 
