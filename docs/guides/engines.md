@@ -96,7 +96,7 @@ engines = {
 |---|---|
 | `model` | the detector: `google/owlv2-base-patch16-ensemble` (the PoC's) or `facebook/sam3`; the embedder: `google/embeddinggemma-300m` |
 | `devices` | `"auto"` (every CUDA device, else the CPU), a device, or a list: one unit per device |
-| `dtype` | float32 by default; `"auto"` picks bfloat16 or float16 by the device |
+| `dtype` | float32 by default (GBC's own SAM 3: `"auto"`); `"auto"` picks bfloat16 or float16 by the device |
 | `max_batch`, `wait_ms` | batch size; how long a batch waits for more requests |
 | `memory_gb` | the placement plan's estimate per device |
 | `engine` | Togeari torch engine options: `schedule`, `isolation`, `slots`, `memory_cap_gb`, `prep_workers` |
@@ -104,11 +104,47 @@ engines = {
 
 SAM 3 boxes what OWLv2 misses on illustrated images. On an anime-style portrait, OWLv2's best
 "girl" box (0.415) covers her legs only; SAM 3 gives one full-body box (0.89) and, inside it,
-her hair (0.94) and her tail (0.91) as separate boxes, where OWLv2 boxed the tail as "hair". It
-runs its vision encoder once per crop and one decoder pass per text; batched equals single.
+her hair (0.94) and her tail (0.91) as separate boxes, where OWLv2 boxed the tail as "hair".
 `configs/machine/qwen35_sam3_local.py` layers it over the one-GPU configuration, in bfloat16.
 
-The detector's default is float32 because its results then do not depend on its batch: in
+### SAM 3: GBC's own model
+
+For `facebook/sam3` (any `sam3` / `sam3_video` checkpoint) the entry builds GBC's own SAM 3
+(`kohakugbc_models.detect.sam3`, `impl: "auto"`; `impl: "transformers"` keeps transformers' model,
+which SAM3-LiteText checkpoints use): each crop's vision features once, each unique text once
+(cached), (crop, text) pairs reading their crop's features in place, fused kernels per arch
+(`kohakugbc_models.kernels`: Triton on sm80+, TileLang on sm70 / sm75, torch.compile and eager as
+fallbacks, every choice timed per problem against the PyTorch paths), the fusion pass and the
+text encoder replayed from CUDA graphs. 2.3x transformers' model through the engine on a 5090
+(bf16), more with fp8 ([performance](../performance/detector.md)).
+
+| Setting | Meaning |
+|---|---|
+| `dtype` | `"auto"` (bfloat16 on sm80+, float16 before) |
+| `max_pairs`, `max_crops` | (crop, text) pairs per fusion pass (16), crops per vision pass (4) |
+| `box_source` | `pred` (the predicted boxes), `mask` (the mask's box on its 288 grid, in one kernel, no logits written), `mask_full` (the mask resized to the crop first); `mask_threshold` 0.5 |
+| `kernels`, `fusion_graph`, `fusion_buckets`, `text_graph` | the kernel registry's ops (true), the fusion pass replayed from CUDA graphs (true) per `exact` pass size (or `pow2`: fewer graphs, padded passes), the text encoder replayed (true) |
+| `fp8`, `fp8_encoder` | the ViT's linears in fp8: `row` (sm89+) or `mx` (sm100+); the DETR encoder's MLPs too (measured inside the noise: off) |
+| `text_device` | `"cpu"`: the text encoder in float32 on the host (0.66 GiB less on the device; the cache serves repeated texts) |
+| `text_cache` | texts whose features are kept (4096, least recently used dropped) |
+| `budget_gb` | fit `max_pairs` / `max_crops` within this many GiB from the card's measured memory plan (`scripts/bench/detector/memory.py`); `memory_gb` defaults to the plan's estimate |
+
+Kernels tune on first use per problem and store their choice under `KOHAKUGBC_KERNEL_CACHE`
+(default `~/.cache/kohakugbc_kernels`); the memory plans live there too. Setting
+`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` in the process environment lowers the
+allocator's reserve by about 1 GiB.
+
+### EmbeddingGemma: GBC's own model
+
+For `gemma3_text` checkpoints (`google/embeddinggemma-300m`) the embed entry builds GBC's own
+EmbeddingGemma (`kohakugbc_models.embed.gemma`, `impl: "auto"`; `impl: "st"` keeps
+sentence-transformers): a batch's texts packed into one token stream (no padding), a
+variable-length bidirectional attention kernel, the pass replayed from one CUDA graph per stream
+bucket. float32 by default (equal to sentence-transformers' vectors, 1 - cos <= 1e-7);
+`residual` (float32) keeps the residual stream in fp32 when `dtype` is 16-bit. 1.9-8.3x
+sentence-transformers' throughput on a 5090 in float32.
+
+OWLv2's default is float32 because its results then do not depend on its batch: in
 float16 a batched crop's scores move by up to 0.085 from the crop alone, in float32 by at most
 1.3e-4 (no detection changes). Float16 with `max_batch` 1 is how the PoC ran it, and gives the
 PoC's boxes exactly. The detector needs torchvision: transformers' slower image processor

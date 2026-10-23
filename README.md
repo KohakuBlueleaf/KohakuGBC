@@ -256,8 +256,8 @@ does not fit before any weight loads.
 | `api` | vlm | any OpenAI-compatible server or Anthropic's Messages API, one unit per endpoint | `flavour` places the JSON schema and turns Qwen3.5's thinking off per server kind; rate limits, health checks, `X-GBC-Request` digests |
 | `vllm` | vlm | vLLM's `AsyncLLM` in this process, one unit per device group | tensor parallel over a unit's devices; its reservation in the placement plan |
 | `qwen35` | vlm | a Qwen3.5 engine written for this workload ([examples/qwen35](examples/qwen35/README.md)) | packed mixed steps over state slots and paged KV, prefix snapshots, Triton kernels raced against references, decode CUDA graphs, xgrammar masks with forced-token jumps, a vision stage of its own |
-| `torch` | detect | OWLv2 (`google/owlv2-base-patch16-ensemble`, the PoC's) or SAM 3 (`facebook/sam3`) | one unit per device; OWLv2 in float16 at batch 1 reproduces the PoC's boxes exactly |
-| `torch` | embed | EmbeddingGemma | batched, normalised |
+| `torch` | detect | OWLv2 (`google/owlv2-base-patch16-ensemble`, the PoC's) or SAM 3 (`facebook/sam3`: GBC's own model, [kohakugbc_models.detect](src/kohakugbc_models/detect)) | one unit per device; OWLv2 in float16 at batch 1 reproduces the PoC's boxes exactly; SAM 3 with fused kernels per arch, CUDA graphs, optional fp8, a measured memory plan |
+| `torch` | embed | EmbeddingGemma (GBC's own model, [kohakugbc_models.embed](src/kohakugbc_models/embed)) | a batch packed into one token stream, varlen attention, CUDA graphs; equal to sentence-transformers' vectors in float32 |
 | `python` | cpu | Togeari's Python workers | threads or processes |
 | `remote` | any | units served by `gbc host` on another node | the lane sees them as local units |
 | `replay` | any | answers from a recorded trace with its recorded latencies | for running the program and the machine without models |
@@ -353,8 +353,16 @@ the one GPU; wall time includes loading the models):
 | text root | 30 / 30 | 30 / 30 | 89.0 s | 15.97 / 15.17 | 28.43 / 26.07 |
 | image query root | 30 / 30 | 30 / 30 | 102.1 s | 16.03 / 17.13 | 27.40 / 29.63 |
 
-One portrait image on the same GPU: 34 s with OWLv2, 79 s with SAM 3 (the device fills with SAM
-3 beside the VLM).
+One portrait image on the same GPU: 34 s with OWLv2, 79 s with transformers' SAM 3 (the device
+fills with SAM 3 beside the VLM).
+
+**The detector and the embedder** (GBC's own SAM 3 and EmbeddingGemma; 45 recorded detector
+requests through the detect engine, 925 names; [six GPUs and the CPU](docs/performance/detector.md)):
+
+| GPU | SAM 3, GBC's / transformers' | EmbeddingGemma fp32, GBC's / sentence-transformers' |
+|---|---|---|
+| RTX 4090 (bf16) | 2.41 s / 5.48 s | 6004 / 1472 texts/s |
+| RTX 5090 (bf16) | 1.50 s / 3.44 s | 7307 / 1726 texts/s |
 
 **The VLM alone** (`scripts/bench/vlm_units.py`: the 425 VLM requests of the text arm, 409
 measured, 64 in flight, Qwen3.5-4B):
@@ -371,6 +379,7 @@ flowchart LR
     cli["cli"] --> machine["machine"] --> program["program"] --> nodes["nodes"] --> graph["graph (Python, Rust)"]
     machine --> engines["engines"] --> togeari["Togeari"]
     program --> kir["KohakuNodeIR"]
+    engines --> models["kohakugbc_models (detect, embed, kernels)"]
 ```
 
 ```
@@ -382,7 +391,13 @@ src/kohakugbc/
   engines/        registry, placement, adapters, api/, inprocess/ (vLLM), torch/, host/, replay/
   io/             sources (folder, jsonl, trace), sinks (graphs, memory)
   cli/            gbc
-src/kohakugbc-rust/   graph resolution in Rust (kohakugbc._rs)
+src/kohakugbc_models/     the models GBC runs itself, standalone of the program and machine
+  detect/         GBC's own SAM 3 (vision, fusion, masks, memory plan), mask boxes
+  embed/          GBC's own EmbeddingGemma over packed token streams
+  kernels/        op registry, per-card tuning, CUDA graphs, fp8; backends eager / compile /
+                  triton / tilelang (attention, varlen, box bias, mask box, fp8 producers)
+  numerics/       error profiles against an fp64 ruler
+src/kohakugbc-rust/       graph resolution in Rust (kohakugbc._rs)
 examples/qwen35/      the qwen35 engine
 configs/              machine and engine configurations
 scripts/              trace recording, benchmarks, docs figures
@@ -397,7 +412,8 @@ tests/                program, graph, machine, engines; fixtures: recorded PoC t
 | [docs/concepts](docs/concepts/README.md) | what a GBC graph is, the program, the machine, the engines |
 | [docs/guides](docs/guides/README.md) | configuring every engine entry, running on one GPU, over an API, on other nodes |
 | [docs/internals](docs/internals/README.md) | the machine, the placement plan, engines on other nodes, the program and its differences from the PoC, traces, graph resolution |
-| [docs/performance](docs/performance/README.md) | the machine on pseudo engines, on real engines, the VLM engines alone |
+| [docs/performance](docs/performance/README.md) | the machine on pseudo engines, on real engines, the VLM engines alone, the detector and the embedder on six GPUs and the CPU |
+| [docs/internals/kernels.md](docs/internals/kernels.md) | the kernel package: registry, tuning, graphs, fp8, every op per arch |
 | [examples/qwen35](examples/qwen35/README.md) | the Qwen3.5 engine: settings, design, tests |
 
 ## Checks

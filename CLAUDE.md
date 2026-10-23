@@ -9,6 +9,10 @@ run it. Three layers, split the way Togeari splits a job:
   machine module), sources and sinks.
 - `src/kohakugbc/engines/`: the engines filling Togeari's contracts (`vlm/`, `torch/`, `host/`,
   `replay/`).
+- `src/kohakugbc_models/`: a standalone package (never imports `kohakugbc`) the torch engine
+  builds: `detect/` and `embed/` the models GBC runs itself (SAM 3, EmbeddingGemma), `kernels/`
+  their kernels (registry, per-arch backends, tuning, CUDA graphs, fp8), `numerics/` error
+  profiles against an fp64 ruler.
 - `src/kohakugbc-rust/`: `kohakugbc._rs`, graph resolution in Rust (crate `Cargo.toml` at the
   root).
 - `examples/qwen35/`: the specialised Qwen3.5 engine, its own package on top of the engines.
