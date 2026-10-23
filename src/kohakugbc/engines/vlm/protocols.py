@@ -15,7 +15,8 @@ and how Qwen3.5's thinking is turned off; the flavour picks:
 The template switch is ``chat_template_kwargs: {"enable_thinking": false}``.
 
 ``anthropic``: the Messages API (``/messages``); no schema field: the prompt asks for JSON and
-the reply parsers read the first JSON object.
+the reply parsers read the first JSON object. ``grammar=False`` leaves the schema out under any
+protocol.
 
 Every request carries ``X-GBC-Request``, the SHA-256 of its key, so a server (the replay
 server, a cache, a log) can tell which question it is.
@@ -42,7 +43,11 @@ def _b64(picture: dict) -> str:
 # ---- OpenAI-compatible ---------------------------------------------------------------------------
 
 
-def openai_body(request: dict, model: str, flavour: str, sampling: dict) -> dict:
+def openai_body(
+    request: dict, model: str, flavour: str, sampling: dict, grammar: bool = True
+) -> dict:
+    """``grammar``: the request's JSON schema goes to the server (False: the prompt alone asks
+    for the JSON)."""
     content = []
     for label, picture in request["images"]:
         if label is not None:
@@ -62,7 +67,7 @@ def openai_body(request: dict, model: str, flavour: str, sampling: dict) -> dict
         "max_tokens": request["max_tokens"],
         **sampling,
     }
-    schema = specs.schema(request["schema"]) if request["schema"] else None
+    schema = specs.schema(request["schema"]) if request["schema"] and grammar else None
     format_ = {"type": "json_schema", "json_schema": {"name": "reply", "schema": schema}}
     match flavour:
         case "vllm":
@@ -102,7 +107,9 @@ def openai_reply(data: dict) -> str:
 # ---- Anthropic Messages ------------------------------------------------------------------------
 
 
-def anthropic_body(request: dict, model: str, flavour: str, sampling: dict) -> dict:
+def anthropic_body(
+    request: dict, model: str, flavour: str, sampling: dict, grammar: bool = True
+) -> dict:
     content = []
     for label, picture in request["images"]:
         if label is not None:

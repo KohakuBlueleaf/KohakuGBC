@@ -3,10 +3,11 @@ chat protocol.
 
 Settings: ``protocol`` (``"openai"`` or ``"anthropic"``), ``flavour`` (OpenAI-compatible
 servers: ``vllm``, ``sglang``, ``llama.cpp``, ``openai``, ``openrouter``), ``model``,
-``sampling`` (extra body fields), ``endpoints``: a list of ``{"base_url", "max_inflight" (32),
-"rate" (requests per second, or ``[rate, burst]``), "api_key_env", "headers"}``; ``timeout_s``
-(600), ``connect_timeout_s`` (10), ``health_path``, ``metrics`` (``"vllm"``: the server's
-running and waiting counts in the unit's load report).
+``sampling`` (extra body fields), ``structured`` (``grammar``: the request's JSON schema goes to
+the server; ``prompt``: the prompt alone asks for the JSON), ``endpoints``: a list of
+``{"base_url", "max_inflight" (32), "rate" (requests per second, or ``[rate, burst]``),
+"api_key_env", "headers"}``; ``timeout_s`` (600), ``connect_timeout_s`` (10), ``health_path``,
+``metrics`` (``"vllm"``: the server's running and waiting counts in the unit's load report).
 """
 
 import os
@@ -26,17 +27,27 @@ class ChatAdapter:
     protocols = {"http"}
     light = True
 
-    def __init__(self, protocol: str, model: str, flavour: str = "vllm", sampling=None):
+    def __init__(
+        self,
+        protocol: str,
+        model: str,
+        flavour: str = "vllm",
+        sampling=None,
+        structured: str = "grammar",
+    ):
+        if structured not in STRUCTURED:
+            raise ValueError(f"structured {structured!r}: one of {STRUCTURED}")
         self.path, self.build, self.read = protocols.PROTOCOLS[protocol]
         self.model, self.flavour = model, flavour
         self.sampling = dict(sampling or {})
+        self.grammar = structured == "grammar"
 
     def check(self, signature) -> list[str]:
         return []
 
     def prepare(self, inputs: dict, protocol: str) -> HttpRequest:
         request = inputs["request"]
-        body = self.build(request, self.model, self.flavour, self.sampling)
+        body = self.build(request, self.model, self.flavour, self.sampling, self.grammar)
         return HttpRequest(
             "POST", self.path, json=body, headers={"X-GBC-Request": protocols.request_id(request)}
         )
@@ -45,6 +56,7 @@ class ChatAdapter:
         return self.read(raw.json())
 
 
+STRUCTURED = ("grammar", "prompt")
 METRIC = re.compile(r"^vllm:num_requests_(running|waiting)\{[^}]*\}\s+([0-9.eE+-]+)", re.M)
 
 
@@ -104,5 +116,6 @@ def api(settings: dict, shared: dict) -> Slot:
         settings["model"],
         settings.get("flavour", "vllm"),
         settings.get("sampling"),
+        settings.get("structured", "grammar"),
     )
     return Slot(units=units, adapter=adapter, lane=dict(settings.get("lane") or {}))
