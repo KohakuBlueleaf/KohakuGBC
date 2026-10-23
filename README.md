@@ -206,12 +206,26 @@ are the defaults under each job's own.
 | `root` | `query` | `query` (the VLM describes the image), `text` / `image_text` (from existing captions), `tags` (from tags) |
 | `min_nodes`, `max_nodes`, `max_rounds` | 8, 20, 4 | node budget on image and entity vertices; rounds stop at the maximum, breadth rounds run below the minimum |
 | `max_top_level`, `max_features_per_entity`, `max_instances_per_text`, `max_depth` | 6, 4, 6, 3 | fan-out caps and depth |
+| `box_score`, `nms_iou`, `nms_iou_single`, `drop_containers` | 0.1, 0.2, 0.05, True | detection selection: score cut, NMS IoU (multiple / single objects), a box containing another dropped; the PoC's, tuned for OWLv2 |
 | `round_size`, `priority`, `max_breadth_rounds`, `coverage_max_new` | None, `area_depth`, 1, 4 | regions per round and their order; coverage rounds |
 | `entity_batch`, `leaf_caption` | 1, `query` | regions per VLM request; leaves captioned by their own request or by the parent's reply |
 | `relational`, `relate` | `both`, `end` | which relational questions; asked once at the end or after every round |
 | `max_side` | 1568 | pictures sent to the VLM: the longer side scaled down to this |
 | `same_threshold`, `overlap_threshold` | 0.725, 0.85 | same-object check: name-embedding similarity and box overlap |
 | `tag_threshold`, `tag_hint` | 0.35, False | tags as elements of a seeded root; tags in the element prompt |
+
+Control presets are configuration layers in `configs/controls/`: `small`, `mid`, `large` (graph
+size), and `sam3` (SAM 3's selection: `box_score` 0.3, `nms_iou` 0.7; the PoC's 0.2 removes
+overlapping objects, two people embracing at IoU 0.5), stacked after a machine configuration
+(`configs/machine/<m>.py configs/controls/mid.py configs/controls/sam3.py`). On the 30 PoC
+images with SAM 3 (Qwen3.5-4B FP8 on vLLM, one RTX 4090, 64 VLM requests in flight):
+
+| Preset | 30 images | Vertices | Entities | Captions |
+|---|---|---|---|---|
+| small + sam3 | 42.9 s | 10.7 | 6.2 | 18.2 |
+| mid + sam3 | 62.0 s | 14.7 | 8.8 | 26.8 |
+| large + sam3 | 92.8 s | 21.6 | 14.0 | 40.8 |
+| the PoC's graphs (OWLv2) | | 15.2 | 9.4 | 26.3 |
 
 ### The machine
 

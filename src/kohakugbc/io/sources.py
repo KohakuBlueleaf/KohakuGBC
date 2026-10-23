@@ -77,12 +77,15 @@ POC_ROOTS = {"text": "text", "image_text": "image_text", "tags": "tags", "query"
 
 class TraceJobs(_Source):
     """The jobs of a recorded trace, with the inputs and controls the recorded run gave them;
-    ``repeat`` above 1 gives each job that many times (keys ``<key>#<n>``, the same image)."""
+    ``repeat`` above 1 gives each job that many times (keys ``<key>#<n>``, the same image);
+    ``override``: the configuration's controls over the recorded ones (else under them)."""
 
-    def __init__(self, path: str, controls: dict | None = None, repeat: int = 1):
+    def __init__(
+        self, path: str, controls: dict | None = None, repeat: int = 1, override: bool = False
+    ):
         super().__init__(controls)
         self.trace = Trace(path)
-        self.repeat = repeat
+        self.repeat, self.override = repeat, override
 
     def items(self):
         for n in range(self.repeat):
@@ -95,6 +98,8 @@ class TraceJobs(_Source):
             controls = {"root": POC_ROOTS.get(arm, "text")}
             for name, value in job["inputs"].get("controls", {}).items():
                 controls[POC_CONTROLS.get(name, name)] = int(value) if value.isdigit() else value
+            if self.override:
+                controls |= self.controls
             seeded = controls["root"] != "query"
             yield key, {
                 "image": {"path": str(self.trace.image_path(job)), "key": key},
@@ -111,7 +116,12 @@ def build(spec: dict | None, controls: dict):
         case "jsonl":
             return Jsonl(spec["path"], controls)
         case "trace":
-            return TraceJobs(spec["path"], controls, int(spec.get("repeat", 1)))
+            return TraceJobs(
+                spec["path"],
+                controls,
+                int(spec.get("repeat", 1)),
+                bool(spec.get("override_controls", False)),
+            )
         case None:
             return None
         case kind:
