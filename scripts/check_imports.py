@@ -65,6 +65,7 @@ EXTRAS = {
         "sentence_transformers",
         "inflect",
         "vllm",
+        "kohakuvllm",
     ),
     "kohakugbc.io": ("PIL", "numpy", "pyarrow"),
     "kohakugbc_models.detect": (
