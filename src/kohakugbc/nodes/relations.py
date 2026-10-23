@@ -191,8 +191,8 @@ def relational_record(q: dict, request: dict, reply: str) -> dict:
 
 
 @node(outputs=["records"])
-def attach(records: list, record: dict) -> list:
-    return [*records, record]
+def extend(records: list, answered: list) -> list:
+    return [*records, *answered]
 
 
 # ---- the graph -----------------------------------------------------------------------------------

@@ -81,10 +81,6 @@ def test_remote_units_keep_the_engine_contract(slot):
             kill=host.stop,
             rounds=120,
             timeout_s=60,
-            # Over 100 submits, so q0.99 is held to 5 ms; the max leaves room for one stall of a
-            # shared CI runner (85 ms seen on Windows) beside the pickling sender thread
-            submit_bound_ms=5.0,
-            submit_max_ms=250.0,
         )
         report.raise_if_failed()
     finally:

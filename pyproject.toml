@@ -12,11 +12,11 @@ authors = [
 ]
 license = { text = "Apache-2.0" }
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-    "togeari[web]>=0.2.0",
+    "togeari[web]>=0.3.0",
     "httpx>=0.27",
-    "kohakunode>=0.2.2",
+    "kohakunode>=0.3.0",
     "pillow>=10",
     "numpy>=2",
     "scipy>=1.11",
@@ -26,7 +26,6 @@ dependencies = [
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -43,7 +42,7 @@ Repository = "https://github.com/KohakuBlueleaf/KohakuGBC"
 [project.optional-dependencies]
 # The vision models (detector, embedder) on Togeari's torch engine
 torch = [
-    "togeari[torch]>=0.2.0",
+    "togeari[torch]>=0.3.0",
     "torch>=2.4",
     "torchvision>=0.19",
     "transformers>=5.20",
@@ -68,7 +67,7 @@ dev = [
     "ruff",
     "black",
     "httpx>=0.27",
-    "togeari[web]>=0.2.0",
+    "togeari[web]>=0.3.0",
 ]
 
 [project.scripts]
@@ -84,11 +83,11 @@ include = ["src/kohakugbc/**/*.kir", "src/kohakugbc/**/*.json", "src/kohakugbc/*
 
 [tool.black]
 line-length = 100
-target-version = ["py310"]
+target-version = ["py311"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 src = ["src", "tests"]
 
 [tool.ruff.lint]

@@ -79,7 +79,9 @@ def bindings(lanes: dict, slots: dict, store: bool) -> dict:
     }
     if store:
         # A repeated name costs no embedding, across jobs and reruns
-        bind["embedder"] = Use(lanes["embed"], adapter=slots["embed"].adapter, store="content")
+        bind["embedder"] = Use(
+            lanes["embed"], adapter=slots["embed"].adapter, store="content", deterministic=True
+        )
     bind.update({node: Use(lanes["cpu"]) for node in CPU_NODES})
     bind["*"] = Inline()
     bind["kir.std.*"] = Inline()

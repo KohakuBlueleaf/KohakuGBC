@@ -73,7 +73,6 @@ def test_unit_keeps_the_engine_contract(recorded, config):
             rounds=48,
             timeout_s=60,
             tolerance=alike,
-            submit_bound_ms=5.0,
         )
         report.raise_if_failed()
         stats = unit.stats()

@@ -135,13 +135,13 @@
     (records)drop_relational(records)
     @hint lane="cpu"
     (image, records, controls)relational_queries(queries)
-    (queries)each(q, `one`)
+    (queries)collect(q, `one`, record -> answered)
     one:
         @hint lane="cpu"
         (image, q, controls)relational_request(request)
         (request)ask(reply)
         (q, request, reply)relational_record(record)
-        (records, record)attach(records)
+    (records, answered)extend(records)
 
 ## The job: one image in, one GBC graph out.
 @def (image, captions = None, tags = None, controls = None)gbc(graph, stats):

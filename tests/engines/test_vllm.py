@@ -75,7 +75,6 @@ def test_vllm_unit_keeps_the_engine_contract():
             rounds=48,
             timeout_s=300,
             tolerance=alike,
-            submit_bound_ms=5.0,
         )
         report.raise_if_failed()
     finally:
