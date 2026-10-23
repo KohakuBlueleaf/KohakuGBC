@@ -73,15 +73,34 @@ class Qwen35Unit(EngineBase):
     protocol = "request"
     shares_memory = True
 
-    def __init__(self, model: str, name: str | None = None, device: str = "cuda:0",
-                 memory: float = 0.5, max_seqs: int = 64, max_model_len: int = 16384,
-                 page_size: int = 16, prefill_tokens: int = 4096, prefill_min: int = 512,
-                 prefill_wait_ms: float = 50.0, snapshots: int = 16, boundaries=("system",),
-                 state_dtype: str = "float32", jump: str = "exact", jump_max: int = 16,
-                 any_whitespace: bool = True, cuda_graphs: bool = True,
-                 vision_patches: int = 32768, prefer: dict | None = None, race: bool = True,
-                 prep_workers: int = 4, capacity: int | None = None, seed: int = 0,
-                 workspace_gib: float | None = None, step_log: str | None = None):  # fmt: skip
+    def __init__(
+        self,
+        model: str,
+        name: str | None = None,
+        device: str = "cuda:0",
+        memory: float = 0.5,
+        max_seqs: int = 64,
+        max_model_len: int = 16384,
+        page_size: int = 16,
+        prefill_tokens: int = 4096,
+        prefill_min: int = 512,
+        prefill_wait_ms: float = 50.0,
+        snapshots: int = 16,
+        boundaries=("system",),
+        state_dtype: str = "float32",
+        jump: str = "exact",
+        jump_max: int = 16,
+        any_whitespace: bool = True,
+        cuda_graphs: bool = True,
+        vision_patches: int = 32768,
+        prefer: dict | None = None,
+        race: bool = True,
+        prep_workers: int = 4,
+        capacity: int | None = None,
+        seed: int = 0,
+        workspace_gib: float | None = None,
+        step_log: str | None = None,
+    ):
         super().__init__(name or "qwen35")
         if state_dtype not in DTYPES:
             raise ValueError(f"state_dtype {state_dtype!r}: one of {sorted(DTYPES)}")
@@ -89,17 +108,28 @@ class Qwen35Unit(EngineBase):
             raise ValueError(f"jump {jump!r}: one of exact, string, off")
         self.model_path, self.device = model, device
         self.options = {
-            "memory": float(memory), "max_seqs": int(max_seqs),
-            "max_model_len": int(max_model_len), "page_size": int(page_size),
-            "prefill_tokens": int(prefill_tokens), "prefill_min": int(prefill_min),
-            "prefill_wait_ms": float(prefill_wait_ms), "snapshots": int(snapshots),
-            "boundaries": list(boundaries), "state_dtype": state_dtype,
-            "jump": jump, "jump_max": int(jump_max), "any_whitespace": bool(any_whitespace),
-            "cuda_graphs": bool(cuda_graphs), "vision_patches": int(vision_patches),
-            "prefer": {**PREFER, **(prefer or {})}, "race": bool(race),
-            "prep_workers": int(prep_workers), "seed": int(seed),
-            "workspace_gib": workspace_gib, "step_log": step_log,
-        }  # fmt: skip
+            "memory": float(memory),
+            "max_seqs": int(max_seqs),
+            "max_model_len": int(max_model_len),
+            "page_size": int(page_size),
+            "prefill_tokens": int(prefill_tokens),
+            "prefill_min": int(prefill_min),
+            "prefill_wait_ms": float(prefill_wait_ms),
+            "snapshots": int(snapshots),
+            "boundaries": list(boundaries),
+            "state_dtype": state_dtype,
+            "jump": jump,
+            "jump_max": int(jump_max),
+            "any_whitespace": bool(any_whitespace),
+            "cuda_graphs": bool(cuda_graphs),
+            "vision_patches": int(vision_patches),
+            "prefer": {**PREFER, **(prefer or {})},
+            "race": bool(race),
+            "prep_workers": int(prep_workers),
+            "seed": int(seed),
+            "workspace_gib": workspace_gib,
+            "step_log": step_log,
+        }
         self.cap = int(capacity or 2 * max_seqs)
         self.lock = threading.Lock()
         self.inflight = 0
@@ -153,9 +183,15 @@ class Qwen35Unit(EngineBase):
         budget = min(int(o["memory"] * total) - weights, free - weights) - work
         state_dtype = DTYPES[o["state_dtype"]]
         self.plan = plan(
-            shape, budget, o["max_seqs"], o["snapshots"], o["page_size"], state_dtype,
-            self.model.dtype, o["max_model_len"],
-        )  # fmt: skip
+            shape,
+            budget,
+            o["max_seqs"],
+            o["snapshots"],
+            o["page_size"],
+            state_dtype,
+            self.model.dtype,
+            o["max_model_len"],
+        )
         if self.plan.reasons:
             raise ValueError(f"{self.name}: " + "; ".join(self.plan.reasons))
         self.pools = Pools(shape, self.plan, dev, state_dtype, self.model.dtype, o["snapshots"])
@@ -163,10 +199,14 @@ class Qwen35Unit(EngineBase):
         grammars = Grammars(tok, shape.vocab, sorted(stop), any_whitespace=o["any_whitespace"])
         max_pages = -(-o["max_model_len"] // o["page_size"])
         settings = Settings(
-            max_seqs=o["max_seqs"], prefill_tokens=o["prefill_tokens"],
-            prefill_min=o["prefill_min"], prefill_wait_ms=o["prefill_wait_ms"],
-            jump=o["jump"], jump_max=o["jump_max"], seed=o["seed"],
-        )  # fmt: skip
+            max_seqs=o["max_seqs"],
+            prefill_tokens=o["prefill_tokens"],
+            prefill_min=o["prefill_min"],
+            prefill_wait_ms=o["prefill_wait_ms"],
+            jump=o["jump"],
+            jump_max=o["jump_max"],
+            seed=o["seed"],
+        )
         self.log = StepLog(o["step_log"]) if o["step_log"] else None
         self.engine = Engine(
             self.model, self.ops, self.pools, grammars, tok, settings, max_pages, stop, self.log
@@ -179,9 +219,12 @@ class Qwen35Unit(EngineBase):
             self.model, self.pools, self.engine.add, o["vision_patches"], self.log
         )
         self.preparer = Preparer(
-            processor, self.model.hf.model.get_rope_index, shape, specs.schema,
+            processor,
+            self.model.hf.model.get_rope_index,
+            shape,
+            specs.schema,
             boundaries=o["boundaries"],
-        )  # fmt: skip
+        )
         self.prep = ThreadPoolExecutor(o["prep_workers"], thread_name_prefix=f"{self.name}-prep")
         self.engine.start(self.graphs)
         self.vision.start()
@@ -317,8 +360,9 @@ def qwen35_units(settings: dict, shared: dict) -> Slot:
     lane = settings.pop("lane", None) or {}
     devices = settings.pop("devices", None) or [settings.pop("device", "cuda:0")]
     units = [
-        Qwen35Unit(model, name=f"qwen35-{i}", device=f"cuda:{d}" if isinstance(d, int) else d,
-                   **settings)  # fmt: skip
+        Qwen35Unit(
+            model, name=f"qwen35-{i}", device=f"cuda:{d}" if isinstance(d, int) else d, **settings
+        )
         for i, d in enumerate(devices)
     ]
     needs = []

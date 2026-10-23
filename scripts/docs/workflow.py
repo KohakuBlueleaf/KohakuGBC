@@ -29,26 +29,61 @@ class Draw:
     def step(self, x, y, w, text, colour, stack=1, ink=PAPER):
         """A step: a filled card centred on ``y``; ``stack`` cards for many jobs of it."""
         for k in range(stack - 1, -1, -1):
-            self.ax.add_patch(patches.FancyBboxPatch(
-                (x + k * 0.1, y - H_STEP / 2 + k * 0.1), w, H_STEP,
-                boxstyle="round,pad=0,rounding_size=0.08", facecolor=colour, edgecolor=PAPER,
-                lw=1.5, zorder=5 - k * 0.1,
-            ))  # fmt: skip
-        self.ax.text(x + w / 2, y, text, fontsize=self.s - 2, color=ink, ha="center",
-                     va="center", fontweight="bold", zorder=7)  # fmt: skip
+            self.ax.add_patch(
+                patches.FancyBboxPatch(
+                    (x + k * 0.1, y - H_STEP / 2 + k * 0.1),
+                    w,
+                    H_STEP,
+                    boxstyle="round,pad=0,rounding_size=0.08",
+                    facecolor=colour,
+                    edgecolor=PAPER,
+                    lw=1.5,
+                    zorder=5 - k * 0.1,
+                )
+            )
+        self.ax.text(
+            x + w / 2,
+            y,
+            text,
+            fontsize=self.s - 2,
+            color=ink,
+            ha="center",
+            va="center",
+            fontweight="bold",
+            zorder=7,
+        )
 
     def spawn(self, x, y):
         """The mark of a step whose reply decides how many jobs follow it."""
-        self.ax.add_patch(patches.Circle((x, y), 0.3, facecolor=SPAWN, edgecolor=PAPER, lw=1.5,
-                                         zorder=8))  # fmt: skip
-        self.ax.text(x, y, "×?", fontsize=self.s - 2, color=PAPER, ha="center", va="center",
-                     fontweight="bold", zorder=9)  # fmt: skip
+        self.ax.add_patch(
+            patches.Circle((x, y), 0.3, facecolor=SPAWN, edgecolor=PAPER, lw=1.5, zorder=8)
+        )
+        self.ax.text(
+            x,
+            y,
+            "×?",
+            fontsize=self.s - 2,
+            color=PAPER,
+            ha="center",
+            va="center",
+            fontweight="bold",
+            zorder=9,
+        )
 
     def arrow(self, a, b, colour=MUTED, lw=1.8):
-        self.ax.annotate("", xy=b, xytext=a, zorder=3, arrowprops={
-            "arrowstyle": "-|>,head_length=0.5,head_width=0.25", "color": colour, "lw": lw,
-            "shrinkA": 0, "shrinkB": 0,
-        })  # fmt: skip
+        self.ax.annotate(
+            "",
+            xy=b,
+            xytext=a,
+            zorder=3,
+            arrowprops={
+                "arrowstyle": "-|>,head_length=0.5,head_width=0.25",
+                "color": colour,
+                "lw": lw,
+                "shrinkA": 0,
+                "shrinkB": 0,
+            },
+        )
 
     def path(self, points, colour=SPAWN, lw=2.2):
         """An orthogonal path through ``points``, its arrowhead on the last one."""
@@ -57,8 +92,18 @@ class Draw:
         self.arrow(points[-2], points[-1], colour, lw)
 
     def label(self, x, y, text, colour=MUTED, ha="left", va="center", size=-3, bold=False):
-        self.ax.text(x, y, text, fontsize=self.s + size, color=colour, ha=ha, va=va, zorder=9,
-                     linespacing=1.3, fontweight="bold" if bold else "normal")  # fmt: skip
+        self.ax.text(
+            x,
+            y,
+            text,
+            fontsize=self.s + size,
+            color=colour,
+            ha=ha,
+            va=va,
+            zorder=9,
+            linespacing=1.3,
+            fontweight="bold" if bold else "normal",
+        )
 
 
 def main() -> int:
@@ -77,48 +122,112 @@ def main() -> int:
     ax.axis("off")
     d = Draw(ax, s)
 
-    ax.text(0.3, H - 0.25, "GBC on one image: a workflow that grows while it runs",
-            fontsize=s + 4, fontweight="bold", color=INK, va="top")  # fmt: skip
-    ax.text(0.3, H - 0.78, "each reply decides how many jobs come next, and how many rounds run",
-            fontsize=s, color=MUTED, va="top")  # fmt: skip
-    legend = [patches.Patch(color=c, label=n) for c, n in
-              ((VLM, "VLM"), (DET, "detector"), (EMB, "embedder"), (CPU, "CPU"),
-               (SPAWN, "×? spawns jobs"))]  # fmt: skip
-    ax.legend(handles=legend, loc="upper right", bbox_to_anchor=(0.995, 0.99), ncol=5,
-              frameon=False, fontsize=s - 2.5)  # fmt: skip
-    for x, title in ((0.3, "1 · root"), (5.6, "2 · a round: every region its own job"),
-                     (15.1, "3 · decide"), (17.4, "4 · relations")):  # fmt: skip
+    ax.text(
+        0.3,
+        H - 0.25,
+        "GBC on one image: a workflow that grows while it runs",
+        fontsize=s + 4,
+        fontweight="bold",
+        color=INK,
+        va="top",
+    )
+    ax.text(
+        0.3,
+        H - 0.78,
+        "each reply decides how many jobs come next, and how many rounds run",
+        fontsize=s,
+        color=MUTED,
+        va="top",
+    )
+    legend = [
+        patches.Patch(color=c, label=n)
+        for c, n in (
+            (VLM, "VLM"),
+            (DET, "detector"),
+            (EMB, "embedder"),
+            (CPU, "CPU"),
+            (SPAWN, "×? spawns jobs"),
+        )
+    ]
+    ax.legend(
+        handles=legend,
+        loc="upper right",
+        bbox_to_anchor=(0.995, 0.99),
+        ncol=5,
+        frameon=False,
+        fontsize=s - 2.5,
+    )
+    for x, title in (
+        (0.3, "1 · root"),
+        (5.6, "2 · a round: every region its own job"),
+        (15.1, "3 · decide"),
+        (17.4, "4 · relations"),
+    ):
         ax.text(x, H - 1.4, title, fontsize=s, color=INK, fontweight="bold", va="top")
 
     # ---- 1 · root: describe the image, find what it names --------------------------------------
-    ax.add_patch(patches.FancyBboxPatch((0.3, 6.0), 1.5, 1.3, boxstyle="round,pad=0,"
-                                        "rounding_size=0.08", facecolor=SKY, edgecolor=INK,
-                                        lw=1.6, zorder=4))  # fmt: skip
+    ax.add_patch(
+        patches.FancyBboxPatch(
+            (0.3, 6.0),
+            1.5,
+            1.3,
+            boxstyle="round,pad=0," "rounding_size=0.08",
+            facecolor=SKY,
+            edgecolor=INK,
+            lw=1.6,
+            zorder=4,
+        )
+    )
     ax.add_patch(patches.Circle((1.4, 6.95), 0.17, facecolor="#f2b632", zorder=5))
-    ax.add_patch(patches.Polygon([(0.38, 6.08), (0.85, 6.75), (1.3, 6.08)], facecolor=CPU,
-                                 zorder=5))  # fmt: skip
-    ax.add_patch(patches.Polygon([(0.95, 6.08), (1.35, 6.5), (1.72, 6.08)], facecolor=MUTED,
-                                 zorder=5))  # fmt: skip
+    ax.add_patch(
+        patches.Polygon([(0.38, 6.08), (0.85, 6.75), (1.3, 6.08)], facecolor=CPU, zorder=5)
+    )
+    ax.add_patch(
+        patches.Polygon([(0.95, 6.08), (1.35, 6.5), (1.72, 6.08)], facecolor=MUTED, zorder=5)
+    )
     d.label(2.0, 6.65, "image\n(+ captions, tags)", INK, size=-1.5, bold=True)
     d.step(0.3, 5.0, 4.2, "describe it, name objects", VLM)
     d.step(0.3, 3.9, 4.2, "find each name", DET)
     d.arrow((1.05, 6.0), (1.05, 5.3))
     d.arrow((2.4, 4.7), (2.4, 4.2))
     d.spawn(4.85, 3.9)
-    d.label(0.3, 3.3, "how many objects, how many\nregions: known only when\nthe replies "
-            "return", CALLOUT, va="top", bold=True)  # fmt: skip
+    d.label(
+        0.3,
+        3.3,
+        "how many objects, how many\nregions: known only when\nthe replies " "return",
+        CALLOUT,
+        va="top",
+        bold=True,
+    )
 
     # ---- the frontier: regions waiting for a round ---------------------------------------------
     fx, fy0, fy1 = 5.6, 3.0, 6.4
-    ax.add_patch(patches.FancyBboxPatch((fx, fy0), 1.3, fy1 - fy0, boxstyle="round,pad=0,"
-                                        "rounding_size=0.1", facecolor=PAPER, edgecolor=INK,
-                                        lw=1.6, zorder=4))  # fmt: skip
+    ax.add_patch(
+        patches.FancyBboxPatch(
+            (fx, fy0),
+            1.3,
+            fy1 - fy0,
+            boxstyle="round,pad=0," "rounding_size=0.1",
+            facecolor=PAPER,
+            edgecolor=INK,
+            lw=1.6,
+            zorder=4,
+        )
+    )
     d.label(fx + 0.65, fy1 - 0.3, "frontier", INK, ha="center", size=-2.5, bold=True)
     for k in range(4):
-        ax.add_patch(patches.FancyBboxPatch((fx + 0.3, fy0 + 0.25 + k * 0.65), 0.7, 0.45,
-                                            boxstyle="round,pad=0,rounding_size=0.05",
-                                            facecolor=LINE, edgecolor=MUTED, lw=1.0,
-                                            zorder=5))  # fmt: skip
+        ax.add_patch(
+            patches.FancyBboxPatch(
+                (fx + 0.3, fy0 + 0.25 + k * 0.65),
+                0.7,
+                0.45,
+                boxstyle="round,pad=0,rounding_size=0.05",
+                facecolor=LINE,
+                edgecolor=MUTED,
+                lw=1.0,
+                zorder=5,
+            )
+        )
     d.arrow((5.15, 3.9), (fx, 4.3), SPAWN, 2.2)
 
     # ---- 2 · a round: each region a job, side by side ------------------------------------------
@@ -149,13 +258,27 @@ def main() -> int:
     d.label(14.7, 5.6, "parts", SPAWN, size=-4, bold=True)
 
     # ---- 3 · decide: another round, more objects, or done --------------------------------------
-    ax.add_patch(patches.Polygon([(dx - r, dy), (dx, dy + r), (dx + r, dy), (dx, dy - r)],
-                                 facecolor=CPU, edgecolor=CPU, zorder=5))  # fmt: skip
+    ax.add_patch(
+        patches.Polygon(
+            [(dx - r, dy), (dx, dy + r), (dx + r, dy), (dx, dy - r)],
+            facecolor=CPU,
+            edgecolor=CPU,
+            zorder=5,
+        )
+    )
     d.label(dx, dy, "next?", PAPER, ha="center", size=-2, bold=True)
     d.path([(dx, dy + r), (dx, 7.9), (fx + 0.65, 7.9), (fx + 0.65, fy1)])
     d.label(dx + 0.12, 6.3, "depth", SPAWN, size=-3, bold=True)
-    d.label(10.2, 8.0, "depth: another round over the frontier, one level deeper", SPAWN,
-            ha="center", va="bottom", size=-2.5, bold=True)  # fmt: skip
+    d.label(
+        10.2,
+        8.0,
+        "depth: another round over the frontier, one level deeper",
+        SPAWN,
+        ha="center",
+        va="bottom",
+        size=-2.5,
+        bold=True,
+    )
 
     d.arrow((dx, dy - r), (dx, 2.9))
     d.label(dx + 0.12, 3.5, "breadth", SPAWN, size=-3, bold=True)
@@ -164,8 +287,16 @@ def main() -> int:
     d.step(14.95, 1.6, 2.1, "find them", DET)
     d.spawn(14.5, 1.6)
     d.path([(14.2, 1.6), (fx + 0.65, 1.6), (fx + 0.65, fy0)])
-    d.label(10.2, 1.45, "breadth: new objects join the frontier", SPAWN, ha="center", va="top",
-            size=-2.5, bold=True)  # fmt: skip
+    d.label(
+        10.2,
+        1.45,
+        "breadth: new objects join the frontier",
+        SPAWN,
+        ha="center",
+        va="top",
+        size=-2.5,
+        bold=True,
+    )
 
     # ---- 4 · relations over groups of the nodes found ------------------------------------------
     d.arrow((dx + r, dy), (17.4, dy))
@@ -177,9 +308,14 @@ def main() -> int:
     d.step(17.4, 2.15, 3.8, "GBC graph", INK)
     d.label(17.4, 1.65, "they wait for every branch", CALLOUT, va="top", bold=True)
 
-    d.label(0.3, 0.5, "×?  a reply decides how many jobs follow it, and the decision how many "
-            "rounds and breadth steps run: the job's shape exists only while it runs", INK,
-            size=-1.5)  # fmt: skip
+    d.label(
+        0.3,
+        0.5,
+        "×?  a reply decides how many jobs follow it, and the decision how many "
+        "rounds and breadth steps run: the job's shape exists only while it runs",
+        INK,
+        size=-1.5,
+    )
     fig.savefig(args.out, dpi=args.dpi, facecolor=PAPER, pil_kwargs={"quality": 90})
     print(args.out)
     return 0

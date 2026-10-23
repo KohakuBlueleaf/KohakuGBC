@@ -99,8 +99,9 @@ class VisionStage:
     def _covered(self, seq) -> bool:
         """The request's ``images`` snapshot (after its last image) is stored."""
         end = seq.prep.image_end
-        return any(length >= end and key in self.pools.snapshots
-                   for length, key in seq.prep.boundaries)  # fmt: skip
+        return any(
+            length >= end and key in self.pools.snapshots for length, key in seq.prep.boundaries
+        )
 
     def _encode(self, todo: list) -> None:
         t0 = time.perf_counter()
@@ -123,5 +124,11 @@ class VisionStage:
         ms = start.elapsed_time(done)
         self.times["vision_gpu"] += ms / 1e3
         if self.log is not None:
-            self.log.write({"kind": "vision", "images": int(grid.shape[0]),
-                            "patches": int(pixels.shape[0]), "gpu_ms": round(ms, 3)})  # fmt: skip
+            self.log.write(
+                {
+                    "kind": "vision",
+                    "images": int(grid.shape[0]),
+                    "patches": int(pixels.shape[0]),
+                    "gpu_ms": round(ms, 3),
+                }
+            )

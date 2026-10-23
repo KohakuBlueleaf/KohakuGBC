@@ -19,14 +19,23 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 
 BASE = [
-    "--config", "configs/local_v3_json.yaml",
-    "--prompt_dir", "prompts/json",
-    "--controls", "target_min_nodes=8", "target_max_nodes=20",
-    "--replace", "shared.detection_model=configs/components/detector_owlv2.yaml",
-    "--override", "shared.detection_score_threshold=0.1", "shared.vlm.model=qwen3.5-4b",
-    "shared.vlm.base_url=http://127.0.0.1:8000/v1", "shared.vlm.server=vllm",
-    "--schedule", "stream",
-]  # fmt: skip
+    "--config",
+    "configs/local_v3_json.yaml",
+    "--prompt_dir",
+    "prompts/json",
+    "--controls",
+    "target_min_nodes=8",
+    "target_max_nodes=20",
+    "--replace",
+    "shared.detection_model=configs/components/detector_owlv2.yaml",
+    "--override",
+    "shared.detection_score_threshold=0.1",
+    "shared.vlm.model=qwen3.5-4b",
+    "shared.vlm.base_url=http://127.0.0.1:8000/v1",
+    "shared.vlm.server=vllm",
+    "--schedule",
+    "stream",
+]
 SEED_FILES = ["data/seeds/seeds.jsonl", "data/seeds/seeds_danbooru.jsonl"]
 
 
@@ -41,12 +50,16 @@ def arms(poc: Path, per_source: int, image_list: Path) -> dict[str, list[str]]:
         "batch4": [*seeds, "--seed_elements", "text", "--controls", "entity_batch=4"],
         "leafcap": [
             *seeds,
-            "--seed_elements", "text",
-            "--controls", "leaf_caption=parent",
-            "--prompt_dir", "prompts/json_leafcap",
-            "--override", f"queries.entity_query.query_kwargs.json_schema_file={leafcap_schema}",
+            "--seed_elements",
+            "text",
+            "--controls",
+            "leaf_caption=parent",
+            "--prompt_dir",
+            "prompts/json_leafcap",
+            "--override",
+            f"queries.entity_query.query_kwargs.json_schema_file={leafcap_schema}",
         ],
-    }  # fmt: skip
+    }
 
 
 def seed_images(poc: Path, per_source: int) -> list[str]:
@@ -88,10 +101,20 @@ def main() -> int:
         argv = [
             str(python),
             str(HERE / "record_poc.py"),
-            "--trace", str(out / name), "--poc", str(poc), "--arm", name,
-            "--", *BASE, *extra,
-            "--workers", str(args.workers), "--run_name", f"trace_{name}_{stamp}",
-        ]  # fmt: skip
+            "--trace",
+            str(out / name),
+            "--poc",
+            str(poc),
+            "--arm",
+            name,
+            "--",
+            *BASE,
+            *extra,
+            "--workers",
+            str(args.workers),
+            "--run_name",
+            f"trace_{name}_{stamp}",
+        ]
         start = time.time()
         with open(out / f"{name}.log", "w", encoding="utf-8") as log:
             code = subprocess.run(argv, stdout=log, stderr=subprocess.STDOUT).returncode

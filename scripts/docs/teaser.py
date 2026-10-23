@@ -23,13 +23,27 @@ from matplotlib import patches
 from PIL import Image
 
 PALETTE = [
-    "#e6550d", "#3182bd", "#31a354", "#9e5fd1", "#d6616b", "#17a2b8", "#b8a000", "#8c564b",
-    "#e377c2", "#2f4b7c", "#637939", "#7f7f7f",
-]  # fmt: skip
+    "#e6550d",
+    "#3182bd",
+    "#31a354",
+    "#9e5fd1",
+    "#d6616b",
+    "#17a2b8",
+    "#b8a000",
+    "#8c564b",
+    "#e377c2",
+    "#2f4b7c",
+    "#637939",
+    "#7f7f7f",
+]
 INK, MUTED, PAPER = "#1f2328", "#6e7781", "#ffffff"
 RELATION = "#57606a"
-KIND_TAG = {"short": "Short", "detail": "Detailed", "composition": "Composition",
-            "relation": "Relation"}  # fmt: skip
+KIND_TAG = {
+    "short": "Short",
+    "detail": "Detailed",
+    "composition": "Composition",
+    "relation": "Relation",
+}
 
 
 # ---- the graph's facts ------------------------------------------------------------------------
@@ -50,10 +64,13 @@ def parents(by_id: dict) -> dict[str, list[str]]:
 
 def below(by_id: dict, u: str) -> list[str]:
     """``u``'s parts or instances (its children that are not relations)."""
-    return list(dict.fromkeys(
-        e["target"] for e in by_id[u]["out_edges"]
-        if e["target"] != u and by_id[e["target"]]["label"] != "relation"
-    ))  # fmt: skip
+    return list(
+        dict.fromkeys(
+            e["target"]
+            for e in by_id[u]["out_edges"]
+            if e["target"] != u and by_id[e["target"]]["label"] != "relation"
+        )
+    )
 
 
 def colours(by_id: dict) -> dict[str, str]:
@@ -112,15 +129,15 @@ def pick(by_id: dict) -> tuple[list[str], list[tuple[str, str | None]]]:
         kids.sort(key=lambda t: by_id[t]["label"] != "entity")
         part = kids[0] if kids else None
     captioned = [("", None)]
-    captioned += [(u, p) for u, p in ((entity, ""), (composition, ""), (part, entity))
-                  if u is not None]  # fmt: skip
+    captioned += [
+        (u, p) for u, p in ((entity, ""), (composition, ""), (part, entity)) if u is not None
+    ]
 
     shown = [""] + objects
     for u in (entity, composition):
         if u is not None:
             shown += below(by_id, u)
-    shown += [r for r in relations
-              if all(e["target"] in shown for e in by_id[r]["out_edges"])]  # fmt: skip
+    shown += [r for r in relations if all(e["target"] in shown for e in by_id[r]["out_edges"])]
     return list(dict.fromkeys(shown)), captioned
 
 
@@ -141,15 +158,30 @@ def draw_image(ax, image, by_id, shown, colour, called, parent, size) -> None:
         x0, y0, x1, y1 = b["left"] * w, b["top"] * h, b["right"] * w, b["bottom"] * h
         part = any(by_id[p]["label"] == "entity" for p in parent[vid])
         c = colour[vid]
-        ax.add_patch(patches.Rectangle(
-            (x0, y0), x1 - x0, y1 - y0, fill=False, edgecolor=c,
-            linewidth=2.4 if part else 4.0, linestyle="--" if part else "-",
-        ))  # fmt: skip
+        ax.add_patch(
+            patches.Rectangle(
+                (x0, y0),
+                x1 - x0,
+                y1 - y0,
+                fill=False,
+                edgecolor=c,
+                linewidth=2.4 if part else 4.0,
+                linestyle="--" if part else "-",
+            )
+        )
         # Instances of a composition stay unlabelled: their labels would pile on each other
         if "" in parent[vid] or part:
             tag = {"facecolor": c, "edgecolor": "none", "pad": 2.5, "alpha": 0.95}
-            ax.text(x0 + 10, y0 + 10, called[vid], color=PAPER, fontsize=size, va="top",
-                    fontweight="bold", bbox=tag)  # fmt: skip
+            ax.text(
+                x0 + 10,
+                y0 + 10,
+                called[vid],
+                color=PAPER,
+                fontsize=size,
+                va="top",
+                fontweight="bold",
+                bbox=tag,
+            )
 
 
 # ---- the graph --------------------------------------------------------------------------------
@@ -295,10 +327,12 @@ class Layout:
         pos = nx.kamada_kawai_layout(g, weight="weight")
         xs, ys = [p[0] for p in pos.values()], [p[1] for p in pos.values()]
         return {
-            u: (0.1 + 0.8 * (x - min(xs)) / (max(xs) - min(xs)),
-                0.1 + 0.8 * (y - min(ys)) / (max(ys) - min(ys)))
+            u: (
+                0.1 + 0.8 * (x - min(xs)) / (max(xs) - min(xs)),
+                0.1 + 0.8 * (y - min(ys)) / (max(ys) - min(ys)),
+            )
             for u, (x, y) in pos.items()
-        }  # fmt: skip
+        }
 
     def total(self, pos, side, box) -> tuple[int, float]:
         bad, soft = 0, 0.0
@@ -326,8 +360,10 @@ class Layout:
                 else:
                     # Small moves only: the start's shape (short edges) stays
                     sigma = 0.08 * (1 - frac) + 0.004
-                    pos[u] = (pos[u][0] + rng.gauss(0, sigma / self.aspect),
-                              pos[u][1] + rng.gauss(0, sigma))  # fmt: skip
+                    pos[u] = (
+                        pos[u][0] + rng.gauss(0, sigma / self.aspect),
+                        pos[u][1] + rng.gauss(0, sigma),
+                    )
                 box[u] = self.rects(u, pos[u], side[u])
                 after = self.local(u, pos, side, box)
                 delta = VIOLATION * (after[0] - before[0]) + after[1] - before[1]
@@ -393,8 +429,12 @@ class Layout:
         for u in self.nodes:
             rs = self.rects(u, pos[u], side[u])
             x, y = pos[u]
-            reach[u] = (x - min(r[0] for r in rs), max(r[2] for r in rs) - x,
-                        y - min(r[1] for r in rs), max(r[3] for r in rs) - y)  # fmt: skip
+            reach[u] = (
+                x - min(r[0] for r in rs),
+                max(r[2] for r in rs) - x,
+                y - min(r[1] for r in rs),
+                max(r[3] for r in rs) - y,
+            )
 
         def fit(axis: int) -> tuple[float, float]:
             lo, hi = (0, 1) if axis == 0 else (2, 3)
@@ -444,31 +484,50 @@ def draw_graph(ax, by_id, shown, colour, called, size) -> None:
     gap = 0.9 * math.sqrt(px_w / px_h / len(nodes))
     # A part or an instance near its parent; every edge kept short
     weight = {
-        (a, b): 2.5 if "relation" in (by_id[a]["label"], by_id[b]["label"])
-        else 3.5 if a == "" else 6.0
+        (a, b): (
+            2.5 if "relation" in (by_id[a]["label"], by_id[b]["label"]) else 3.5 if a == "" else 6.0
+        )
         for a, b in edges
-    }  # fmt: skip
+    }
     centre, side, bad = Layout(nodes, edges, node_r, label, px_w / px_h, gap, weight).run()
-    print(f"graph layout: {bad} violation(s) left (an edge under a node or label, boxes "
-          f"overlapping, or off the panel)")  # fmt: skip
+    print(
+        f"graph layout: {bad} violation(s) left (an edge under a node or label, boxes "
+        f"overlapping, or off the panel)"
+    )
 
     for a, b in edges:
         relation = by_id[b]["label"] == "relation" or by_id[a]["label"] == "relation"
         c = RELATION if relation else colour[b]
-        ax.annotate("", xy=centre[b], xytext=centre[a], zorder=1, arrowprops={
-            "arrowstyle": "-|>,head_length=0.7,head_width=0.35", "color": c,
-            "lw": 1.8 if by_id[b]["label"] == "relation" else 2.4, "alpha": 0.9,
-            "linestyle": (0, (4, 2)) if by_id[b]["label"] == "relation" else "-",
-            "connectionstyle": f"arc3,rad={BEND}",
-            "shrinkA": node_pt(by_id[a]["label"], size) * 0.55,
-            "shrinkB": node_pt(by_id[b]["label"], size) * 0.55,
-        })  # fmt: skip
+        ax.annotate(
+            "",
+            xy=centre[b],
+            xytext=centre[a],
+            zorder=1,
+            arrowprops={
+                "arrowstyle": "-|>,head_length=0.7,head_width=0.35",
+                "color": c,
+                "lw": 1.8 if by_id[b]["label"] == "relation" else 2.4,
+                "alpha": 0.9,
+                "linestyle": (0, (4, 2)) if by_id[b]["label"] == "relation" else "-",
+                "connectionstyle": f"arc3,rad={BEND}",
+                "shrinkA": node_pt(by_id[a]["label"], size) * 0.55,
+                "shrinkB": node_pt(by_id[b]["label"], size) * 0.55,
+            },
+        )
     marker = {"image": "o", "entity": "o", "composition": "s", "relation": "D"}
     for u in shown:
         kind = by_id[u]["label"]
         x, y = centre[u]
-        ax.scatter([x], [y], s=node_pt(kind, size) ** 2, marker=marker[kind], color=colour[u],
-                   edgecolors=PAPER, linewidths=2.0, zorder=3)  # fmt: skip
+        ax.scatter(
+            [x],
+            [y],
+            s=node_pt(kind, size) ** 2,
+            marker=marker[kind],
+            color=colour[u],
+            edgecolors=PAPER,
+            linewidths=2.0,
+            zorder=3,
+        )
         rx, ry = node_r[u]
         lx, ly, ha, va = {
             "below": (x, y - ry, "center", "top"),
@@ -476,9 +535,19 @@ def draw_graph(ax, by_id, shown, colour, called, size) -> None:
             "right": (x + rx, y, "left", "center"),
             "left": (x - rx, y, "right", "center"),
         }[side[u]]
-        ax.text(lx, ly, text[u], fontsize=size, fontweight="bold", ha=ha, va=va,
-                linespacing=1.0, zorder=4, multialignment="center",
-                color=colour[u] if kind != "image" else INK)  # fmt: skip
+        ax.text(
+            lx,
+            ly,
+            text[u],
+            fontsize=size,
+            fontweight="bold",
+            ha=ha,
+            va=va,
+            linespacing=1.0,
+            zorder=4,
+            multialignment="center",
+            color=colour[u] if kind != "image" else INK,
+        )
 
 
 # ---- captions ---------------------------------------------------------------------------------
@@ -512,8 +581,13 @@ def flow(ax, x0, y0, x1, floor, pieces, size, found: dict) -> float:
     line = size / 72 * ax.figure.dpi * 1.4 / ax.bbox.height
     x, y = x0, y0
     for word, c, space, target in pieces:
-        style = {"fontsize": size, "color": c or INK, "fontweight": "bold" if c else "normal",
-                 "va": "top", "transform": ax.transAxes}  # fmt: skip
+        style = {
+            "fontsize": size,
+            "color": c or INK,
+            "fontweight": "bold" if c else "normal",
+            "va": "top",
+            "transform": ax.transAxes,
+        }
         piece = word + (" " if space else "")
         t = ax.text(x, y, piece, **style)
         dx = t.get_window_extent(renderer).width / ax.bbox.width
@@ -533,9 +607,11 @@ def flow(ax, x0, y0, x1, floor, pieces, size, found: dict) -> float:
 
 def descs(v: dict) -> list[tuple[str, str]]:
     want = {
-        "image": ("short", "detail"), "entity": ("detail",),
-        "composition": ("composition", "short"), "relation": ("relation",),
-    }[v["label"]]  # fmt: skip
+        "image": ("short", "detail"),
+        "entity": ("detail",),
+        "composition": ("composition", "short"),
+        "relation": ("relation",),
+    }[v["label"]]
     out = []
     for label in want:
         out += [(label, d["text"]) for d in v["descs"] if d["label"] == label][:1]
@@ -564,19 +640,31 @@ def draw_cards(fig, rect, by_id, captioned, colour, called, size):
         bar = size * 1.9 / 72 * fig.dpi / ax.bbox.height
         # Opaque: the links run under the cards and show only between them
         ax.add_patch(patches.Rectangle((0, 0), 1, 1, facecolor=PAPER, edgecolor="none"))
-        ax.add_patch(patches.Rectangle((0, 0), 1, 1, facecolor=col, alpha=0.08, edgecolor=col,
-                                       linewidth=2.0))  # fmt: skip
-        ax.add_patch(patches.Rectangle((0, 1 - bar), 1, bar, facecolor=col, edgecolor=col,
-                                       linewidth=2.0))  # fmt: skip
+        ax.add_patch(
+            patches.Rectangle((0, 0), 1, 1, facecolor=col, alpha=0.08, edgecolor=col, linewidth=2.0)
+        )
+        ax.add_patch(
+            patches.Rectangle((0, 1 - bar), 1, bar, facecolor=col, edgecolor=col, linewidth=2.0)
+        )
         title = "Image captions" if vid == "" else f'Captions for the node "{called[vid]}"'
-        t = ax.text(0.5, 1 - bar / 2, title, fontsize=size + 1, fontweight="bold", color=PAPER,
-                    ha="center", va="center")  # fmt: skip
+        t = ax.text(
+            0.5,
+            1 - bar / 2,
+            title,
+            fontsize=size + 1,
+            fontweight="bold",
+            color=PAPER,
+            ha="center",
+            va="center",
+        )
         room = 0.96 * ax.bbox.width
         wide = t.get_window_extent(fig.canvas.get_renderer()).width
         if wide > room:
             t.set_fontsize((size + 1) * room / wide)
-        spans = [(e["text"], colour[e["target"]], e["target"] if e["target"] in wanted else None)
-                 for e in by_id[vid]["out_edges"]]  # fmt: skip
+        spans = [
+            (e["text"], colour[e["target"]], e["target"] if e["target"] in wanted else None)
+            for e in by_id[vid]["out_edges"]
+        ]
         yy, found = 1 - bar - 0.045, {}
         shown = descs(by_id[vid])
         line = size / 72 * fig.dpi * 1.4 / ax.bbox.height
@@ -604,11 +692,19 @@ def link(fig, extent, source, target, colour) -> None:
         (extent.x1, extent.y1)
     )
     pad = 0.003
-    fig.add_artist(patches.FancyBboxPatch(
-        (x0 - pad, y0 - pad), x1 - x0 + 2 * pad, y1 - y0 + 2 * pad, transform=fig.transFigure,
-        boxstyle="round,pad=0,rounding_size=0.004", fill=False, edgecolor=colour, lw=2.4,
-        zorder=6,
-    ))  # fmt: skip
+    fig.add_artist(
+        patches.FancyBboxPatch(
+            (x0 - pad, y0 - pad),
+            x1 - x0 + 2 * pad,
+            y1 - y0 + 2 * pad,
+            transform=fig.transFigure,
+            boxstyle="round,pad=0,rounding_size=0.004",
+            fill=False,
+            edgecolor=colour,
+            lw=2.4,
+            zorder=6,
+        )
+    )
     sx, sy, sw, sh = source
     tx, ty, tw, th = target
     mid = (x0 + x1) / 2
@@ -621,13 +717,31 @@ def link(fig, extent, source, target, colour) -> None:
         lane = ty + th + 0.028
         points = [(mid, (y0 + y1) / 2), (mid, lane), (land, lane), (land, ty + th)]
     xs, ys = zip(*points[:-1])
-    fig.add_artist(plt.Line2D(xs, ys, color=colour, lw=2.8, transform=fig.transFigure,
-                              zorder=-1, solid_joinstyle="round"))  # fmt: skip
-    fig.add_artist(patches.FancyArrowPatch(
-        points[-2], points[-1], transform=fig.transFigure, color=colour, lw=2.8, zorder=-1,
-        arrowstyle="-|>,head_length=0.7,head_width=0.4", mutation_scale=14, shrinkA=0,
-        shrinkB=0,
-    ))  # fmt: skip
+    fig.add_artist(
+        plt.Line2D(
+            xs,
+            ys,
+            color=colour,
+            lw=2.8,
+            transform=fig.transFigure,
+            zorder=-1,
+            solid_joinstyle="round",
+        )
+    )
+    fig.add_artist(
+        patches.FancyArrowPatch(
+            points[-2],
+            points[-1],
+            transform=fig.transFigure,
+            color=colour,
+            lw=2.8,
+            zorder=-1,
+            arrowstyle="-|>,head_length=0.7,head_width=0.4",
+            mutation_scale=14,
+            shrinkA=0,
+            shrinkB=0,
+        )
+    )
 
 
 def main() -> int:
@@ -658,10 +772,17 @@ def main() -> int:
     a = image_w / width
     img_ax = fig.add_axes([0.004, (1 - image_h / height) / 2, a - 0.008, image_h / height])
     draw_image(img_ax, image, by_id, shown, colour, called, parent, args.font - 1)
-    draw_graph(fig.add_axes([a + 0.02, 0.5, 1 - a - 0.03, 0.49]), by_id, shown, colour, called,
-               args.font + 1)  # fmt: skip
-    boxes, phrases = draw_cards(fig, [a + 0.02, 0.012, 1 - a - 0.03, 0.45], by_id, captioned,
-                                colour, called, args.font)  # fmt: skip
+    draw_graph(
+        fig.add_axes([a + 0.02, 0.5, 1 - a - 0.03, 0.49]),
+        by_id,
+        shown,
+        colour,
+        called,
+        args.font + 1,
+    )
+    boxes, phrases = draw_cards(
+        fig, [a + 0.02, 0.012, 1 - a - 0.03, 0.45], by_id, captioned, colour, called, args.font
+    )
     for child, par in captioned:
         if par is not None and child in phrases.get(par, {}):
             link(fig, phrases[par][child], boxes[par], boxes[child], colour[child])

@@ -16,8 +16,9 @@ import xgrammar as xgr
 
 
 class Grammars:
-    def __init__(self, tokenizer, vocab: int, stop: list[int], any_whitespace: bool = True,
-                 threads: int = 8):  # fmt: skip
+    def __init__(
+        self, tokenizer, vocab: int, stop: list[int], any_whitespace: bool = True, threads: int = 8
+    ):
         self.vocab = vocab
         info = xgr.TokenizerInfo.from_huggingface(tokenizer, vocab_size=vocab, stop_token_ids=stop)
         self.compiler = xgr.GrammarCompiler(info, max_threads=threads)

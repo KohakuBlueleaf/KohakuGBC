@@ -17,9 +17,24 @@ def _softplus(x):
 
 @triton.jit
 def _delta_recurrent(
-    Q, K, V, A, B, ALOG, DTB, O, STATE, SLOTS, CU, scale,
-    H: tl.constexpr, HV: tl.constexpr, KD: tl.constexpr, VD: tl.constexpr, BV: tl.constexpr,
-):  # fmt: skip
+    Q,
+    K,
+    V,
+    A,
+    B,
+    ALOG,
+    DTB,
+    O,
+    STATE,
+    SLOTS,
+    CU,
+    scale,
+    H: tl.constexpr,
+    HV: tl.constexpr,
+    KD: tl.constexpr,
+    VD: tl.constexpr,
+    BV: tl.constexpr,
+):
     i_v = tl.program_id(0)
     i_nh = tl.program_id(1)
     n = i_nh // HV
@@ -59,8 +74,24 @@ def delta(q, k, v, a, b, a_log, dt_bias, state, slots, cu, max_len):
     out = torch.empty_like(v)
     grid = (vd // bv, n_seq * hv)
     _delta_recurrent[grid](
-        q.contiguous(), k.contiguous(), v.contiguous(), a.contiguous(), b.contiguous(),
-        a_log, dt_bias, out, state, slots, cu, kd ** -0.5,
-        H=hk, HV=hv, KD=kd, VD=vd, BV=bv, num_warps=1, num_stages=3,
-    )  # fmt: skip
+        q.contiguous(),
+        k.contiguous(),
+        v.contiguous(),
+        a.contiguous(),
+        b.contiguous(),
+        a_log,
+        dt_bias,
+        out,
+        state,
+        slots,
+        cu,
+        kd**-0.5,
+        H=hk,
+        HV=hv,
+        KD=kd,
+        VD=vd,
+        BV=bv,
+        num_warps=1,
+        num_stages=3,
+    )
     return out

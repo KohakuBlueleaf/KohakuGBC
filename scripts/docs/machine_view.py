@@ -42,8 +42,15 @@ def load(path: str) -> tuple[dict, list[dict], dict]:
             elif kind == "job.end" and e["job"] in jobs:
                 jobs[e["job"]]["end"] = e["t"]
             elif kind == "lane.result":
-                calls.append({"lane": e["lane"], "node": e.get("node", ""), "job": e["job"],
-                              "start": e["t"] - e["service_s"], "end": e["t"]})  # fmt: skip
+                calls.append(
+                    {
+                        "lane": e["lane"],
+                        "node": e.get("node", ""),
+                        "job": e["job"],
+                        "start": e["t"] - e["service_s"],
+                        "end": e["t"],
+                    }
+                )
             elif kind == "lane.submit":
                 batches[e["lane"]].append(e["items"])
     t0 = min(j["admit"] for j in jobs.values())
@@ -67,10 +74,16 @@ def gantt(ax, jobs, calls, size) -> None:
             continue
         colour = LANES[c["lane"]][0]
         height = 0.72 if c["lane"] == "vlm" else 0.5
-        ax.add_patch(patches.Rectangle(
-            (c["start"], row[c["job"]] - height / 2), max(c["end"] - c["start"], 0.05), height,
-            facecolor=colour, edgecolor="none", alpha=0.85 if c["lane"] == "vlm" else 0.95,
-        ))  # fmt: skip
+        ax.add_patch(
+            patches.Rectangle(
+                (c["start"], row[c["job"]] - height / 2),
+                max(c["end"] - c["start"], 0.05),
+                height,
+                facecolor=colour,
+                edgecolor="none",
+                alpha=0.85 if c["lane"] == "vlm" else 0.95,
+            )
+        )
     ax.set_ylim(len(order) - 0.4, -0.6)
     ax.set_xlim(0, max(j["end"] for j in jobs.values()) * 1.01)
     ax.set_yticks([])
@@ -80,16 +93,28 @@ def gantt(ax, jobs, calls, size) -> None:
     for side in ("top", "right", "left"):
         ax.spines[side].set_visible(False)
     handles = [patches.Patch(color=c, label=name) for c, name in LANES.values()]
-    ax.legend(handles=handles, loc="upper right", ncol=4, fontsize=size - 1, frameon=False,
-              bbox_to_anchor=(1.0, 1.07))  # fmt: skip
+    ax.legend(
+        handles=handles,
+        loc="upper right",
+        ncol=4,
+        fontsize=size - 1,
+        frameon=False,
+        bbox_to_anchor=(1.0, 1.07),
+    )
 
 
 def in_flight(ax, calls, end, size, capacity: int | None) -> None:
     t = np.linspace(0, end, 600)
     if capacity:
         ax.axhline(capacity, color=LANES["vlm"][0], lw=1.0, ls=(0, (4, 3)), alpha=0.6)
-        ax.text(end * 0.02, capacity * 1.03, f"VLM lane capacity {capacity}", fontsize=size - 2,
-                color=LANES["vlm"][0], va="bottom")  # fmt: skip
+        ax.text(
+            end * 0.02,
+            capacity * 1.03,
+            f"VLM lane capacity {capacity}",
+            fontsize=size - 2,
+            color=LANES["vlm"][0],
+            va="bottom",
+        )
     for lane, (colour, name) in LANES.items():
         spans = [(c["start"], c["end"]) for c in calls if c["lane"] == lane]
         n = np.zeros_like(t)
@@ -129,14 +154,25 @@ def one_job(ax, jobs, calls, size) -> None:
     a = jobs[j]["admit"]
     for c in mine:
         colour = LANES[c["lane"]][0]
-        ax.add_patch(patches.Rectangle((c["start"] - a, c["track"] - 0.38),
-                                       max(c["end"] - c["start"], 0.03), 0.76,
-                                       facecolor=colour, edgecolor=PAPER, lw=0.6))  # fmt: skip
+        ax.add_patch(
+            patches.Rectangle(
+                (c["start"] - a, c["track"] - 0.38),
+                max(c["end"] - c["start"], 0.03),
+                0.76,
+                facecolor=colour,
+                edgecolor=PAPER,
+                lw=0.6,
+            )
+        )
     ax.set_xlim(0, jobs[j]["end"] - a)
     ax.set_ylim(len(tracks) - 0.4, -0.6)
     ax.set_yticks([])
-    ax.set_title(f"one image: up to {peak(j)} of its VLM requests at once",
-                 fontsize=size, loc="left", color=INK)  # fmt: skip
+    ax.set_title(
+        f"one image: up to {peak(j)} of its VLM requests at once",
+        fontsize=size,
+        loc="left",
+        color=INK,
+    )
     ax.set_ylabel("calls at once", fontsize=size - 1)
     ax.set_xlabel("seconds since admission", fontsize=size)
     ax.tick_params(labelsize=size - 2)
@@ -162,8 +198,13 @@ def main() -> int:
     fig.suptitle(
         f"The GBC machine: {len(jobs)} images, {len(calls)} engine calls in {end:.0f} s "
         f"({len(vlm)} VLM requests; detector batches of up to {max(det, default=1)})",
-        fontsize=size + 3, x=0.01, ha="left", y=0.985, color=INK, fontweight="bold",
-    )  # fmt: skip
+        fontsize=size + 3,
+        x=0.01,
+        ha="left",
+        y=0.985,
+        color=INK,
+        fontweight="bold",
+    )
     gantt(fig.add_axes([0.04, 0.09, 0.55, 0.8]), jobs, calls, size)
     in_flight(fig.add_axes([0.64, 0.58, 0.345, 0.31]), calls, end, size, args.capacity)
     one_job(fig.add_axes([0.64, 0.09, 0.345, 0.36]), jobs, calls, size)

@@ -93,9 +93,12 @@ def case(model, recorded):
     """A recorded request with an image, prepared; its recorded reply's tokens."""
     processor = AutoProcessor.from_pretrained(model.path)
     preparer = Preparer(
-        processor, model.hf.model.get_rope_index, model.shape, specs.schema,
+        processor,
+        model.hf.model.get_rope_index,
+        model.shape,
+        specs.schema,
         boundaries=("system", "images"),
-    )  # fmt: skip
+    )
     request, reply = next((r, t) for r, t in recorded if r["images"] and r["system"])
     prep = preparer(request)
     reply_ids = processor.tokenizer(reply, add_special_tokens=False)["input_ids"][:REPLY]

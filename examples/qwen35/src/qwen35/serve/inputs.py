@@ -81,9 +81,11 @@ class Preparer:
 
     def __call__(self, request: dict) -> Prepared:
         text = self.processor.apply_chat_template(
-            chat_messages(request), tokenize=False, add_generation_prompt=True,
+            chat_messages(request),
+            tokenize=False,
+            add_generation_prompt=True,
             enable_thinking=False,
-        )  # fmt: skip
+        )
         images, raw = pictures(request)
         enc = self.processor(
             text=[text], images=images or None, return_tensors="pt", return_mm_token_type_ids=True

@@ -10,10 +10,33 @@ import numpy as np
 from hbutils.string.plural import singular_form
 
 QUANTIFIERS = {
-    "a", "an", "some", "many", "several", "few", "one", "two", "three", "four", "five", "six",
-    "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
-    "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
-}  # fmt: skip
+    "a",
+    "an",
+    "some",
+    "many",
+    "several",
+    "few",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+    "twenty",
+}
 POSITIONS = {"right", "left", "top", "bottom", "front", "back", "side"}
 
 

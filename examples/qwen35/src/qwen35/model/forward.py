@@ -149,9 +149,19 @@ class Model:
         k = qkv[:, kd : 2 * kd].reshape(n, sh.key_heads, sh.key_dim).contiguous()
         v = qkv[:, 2 * kd :].reshape(n, sh.value_heads, sh.value_dim).contiguous()
         o = ops(
-            "delta", q, k, v, a, b, la.A_log, la.dt_bias,
-            pools.state[j], step.slots, step.cu, step.max_len,
-        )  # fmt: skip
+            "delta",
+            q,
+            k,
+            v,
+            a,
+            b,
+            la.A_log,
+            la.dt_bias,
+            pools.state[j],
+            step.slots,
+            step.cu,
+            step.max_len,
+        )
         o = gated_rms(o, z, la.norm.weight, sh.eps)
         return F.linear(o.reshape(n, -1), la.out_proj.weight)
 
@@ -167,8 +177,18 @@ class Model:
         q = self.apply_rope(q, cos, sin).contiguous()
         k = self.apply_rope(k, cos, sin).contiguous()
         o = ops(
-            "attention", q, k, v.contiguous(), pools.keys[j], pools.values[j],
-            step.pages, step.ctx, step.cu, step.write, step.max_len, hd**-0.5,
-        )  # fmt: skip
+            "attention",
+            q,
+            k,
+            v.contiguous(),
+            pools.keys[j],
+            pools.values[j],
+            step.pages,
+            step.ctx,
+            step.cu,
+            step.write,
+            step.max_len,
+            hd**-0.5,
+        )
         o = o.reshape(n, sh.heads * hd) * torch.sigmoid(gate)
         return F.linear(o, at.o_proj.weight)

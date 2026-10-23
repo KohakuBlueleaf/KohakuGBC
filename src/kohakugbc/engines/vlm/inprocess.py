@@ -40,8 +40,15 @@ class VllmUnit(EngineBase):
     protocol = "vllm"
     shares_memory = True
 
-    def __init__(self, model: str, devices: list[int] | None = None, capacity=None, name=None,
-                 sampling: dict | None = None, **engine_args):  # fmt: skip
+    def __init__(
+        self,
+        model: str,
+        devices: list[int] | None = None,
+        capacity=None,
+        name=None,
+        sampling: dict | None = None,
+        **engine_args,
+    ):
         super().__init__(name or "vllm")
         self.model, self.devices = model, list(devices or [])
         self.engine_args = {

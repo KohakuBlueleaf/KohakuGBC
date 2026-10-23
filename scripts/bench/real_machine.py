@@ -71,8 +71,9 @@ def run(layers: list[str], arm: str, args) -> dict:
     with open(out / "graphs.jsonl", "w", encoding="utf-8") as f:
         f.writelines(r.outputs["graph"] + "\n" for r in ok)
     with open(out / "failures.jsonl", "w", encoding="utf-8") as f:
-        f.writelines(json.dumps({"key": r.key, **(r.failure or {})}) + "\n"
-                     for r in records if not r.ok)  # fmt: skip
+        f.writelines(
+            json.dumps({"key": r.key, **(r.failure or {})}) + "\n" for r in records if not r.ok
+        )
     ours = [json.loads(r.outputs["graph"]) for r in ok]
     poc = [job["graph"] for job in Trace(trace_dir).jobs.values()]
     return {

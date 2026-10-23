@@ -11,9 +11,12 @@ _OUT = os.environ.get("GBC_OUT", "runs/machine/qwen35_local")
 engines = {
     # 24 GiB: the 4B weights (8.5 GiB), bfloat16 states for 64 sequences, ~70k tokens of KV
     "vlm": {
-        "entry": "qwen35", "model": _MODEL, "device": "cuda:0", "memory": 0.65,
+        "entry": "qwen35",
+        "model": _MODEL,
+        "device": "cuda:0",
+        "memory": 0.65,
         "state_dtype": "bfloat16",
-    },  # fmt: skip
+    },
     "detect": {"entry": "torch", "devices": ["cuda:0"], "max_batch": 8, "wait_ms": 5.0},
     "embed": {"entry": "torch", "devices": ["cpu"], "max_batch": 64},
     "cpu": {"entry": "python", "workers": 8},

@@ -19,11 +19,32 @@ from qwen35.ops.backends.reference import write_cache
 
 @triton.jit
 def _paged_attention(
-    Q, KC, VC, O, PAGES, CU, CTX, SEG, QST, scale, n_seq,
-    s_qn, s_qh, s_cp, s_co, s_ch, s_pb, s_on, s_oh,
-    GROUP: tl.constexpr, BQ: tl.constexpr, M: tl.constexpr, D: tl.constexpr,
-    PAGE: tl.constexpr, BN: tl.constexpr,
-):  # fmt: skip
+    Q,
+    KC,
+    VC,
+    O,
+    PAGES,
+    CU,
+    CTX,
+    SEG,
+    QST,
+    scale,
+    n_seq,
+    s_qn,
+    s_qh,
+    s_cp,
+    s_co,
+    s_ch,
+    s_pb,
+    s_on,
+    s_oh,
+    GROUP: tl.constexpr,
+    BQ: tl.constexpr,
+    M: tl.constexpr,
+    D: tl.constexpr,
+    PAGE: tl.constexpr,
+    BN: tl.constexpr,
+):
     pid = tl.program_id(0)
     kh = tl.program_id(1)
     n = tl.load(SEG + pid)
@@ -98,10 +119,32 @@ def attention(q, k, v, cache_k, cache_v, pages, ctx, cu, write, max_len, scale):
     seg, first, grid = block_map(cu, n, bq)
     out = torch.empty_like(q)
     _paged_attention[(grid, kvh)](
-        q, cache_k, cache_v, out, pages, cu, ctx, seg, first, scale, cu.shape[0] - 1,
-        q.stride(0), q.stride(1), cache_k.stride(0), cache_k.stride(1), cache_k.stride(2),
-        pages.stride(0), out.stride(0), out.stride(1),
-        GROUP=group, BQ=bq, M=rows, D=dim, PAGE=page, BN=32,
-        num_warps=4 if rows <= 16 else 8, num_stages=2,
-    )  # fmt: skip
+        q,
+        cache_k,
+        cache_v,
+        out,
+        pages,
+        cu,
+        ctx,
+        seg,
+        first,
+        scale,
+        cu.shape[0] - 1,
+        q.stride(0),
+        q.stride(1),
+        cache_k.stride(0),
+        cache_k.stride(1),
+        cache_k.stride(2),
+        pages.stride(0),
+        out.stride(0),
+        out.stride(1),
+        GROUP=group,
+        BQ=bq,
+        M=rows,
+        D=dim,
+        PAGE=page,
+        BN=32,
+        num_warps=4 if rows <= 16 else 8,
+        num_stages=2,
+    )
     return out

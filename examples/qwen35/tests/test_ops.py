@@ -44,9 +44,14 @@ def delta_case(lengths, hk=4, hv=8, dk=128, dv=128, pool=9, seed=0):
         return (torch.randn(*s, generator=g, device=DEV) * scale).to(dtype)
 
     args = dict(
-        q=r(n, hk, dk), k=r(n, hk, dk), v=r(n, hv, dv), a=r(n, hv), b=r(n, hv),
-        a_log=r(hv, scale=0.5, dtype=torch.float32), dt_bias=r(hv, dtype=torch.float32),
-    )  # fmt: skip
+        q=r(n, hk, dk),
+        k=r(n, hk, dk),
+        v=r(n, hv, dv),
+        a=r(n, hv),
+        b=r(n, hv),
+        a_log=r(hv, scale=0.5, dtype=torch.float32),
+        dt_bias=r(hv, dtype=torch.float32),
+    )
     state = r(pool, hv, dk, dv, scale=0.3, dtype=torch.float32)
     slots = torch.tensor([7, 0, 4, 2][: len(lengths)], dtype=torch.int32, device=DEV)
     return args, state, slots, cu_of(lengths), max(lengths)
@@ -54,8 +59,21 @@ def delta_case(lengths, hk=4, hv=8, dk=128, dv=128, pool=9, seed=0):
 
 def call_delta(backend, args, state, slots, cu, max_len):
     a = args
-    return run("delta", backend, a["q"], a["k"], a["v"], a["a"], a["b"], a["a_log"],
-               a["dt_bias"], state, slots, cu, max_len)  # fmt: skip
+    return run(
+        "delta",
+        backend,
+        a["q"],
+        a["k"],
+        a["v"],
+        a["a"],
+        a["b"],
+        a["a_log"],
+        a["dt_bias"],
+        state,
+        slots,
+        cu,
+        max_len,
+    )
 
 
 @pytest.mark.parametrize("lengths", [[1, 1, 1, 1], [3, 1, 16, 2], [70, 1, 130, 5]])
@@ -126,10 +144,18 @@ def attention_case(cached, new, heads=8, kvh=2, hd=256, page=16, seed=2):
     k = torch.randn(n, kvh, hd, generator=g, device=DEV).to(BF)
     v = torch.randn(n, kvh, hd, generator=g, device=DEV).to(BF)
     return (
-        q, k, v, cache_k, cache_v, tables.to(DEV),
-        torch.tensor(total, dtype=torch.int32, device=DEV), cu_of(new),
-        torch.cat(rows).to(DEV), max(new), hd**-0.5,
-    )  # fmt: skip
+        q,
+        k,
+        v,
+        cache_k,
+        cache_v,
+        tables.to(DEV),
+        torch.tensor(total, dtype=torch.int32, device=DEV),
+        cu_of(new),
+        torch.cat(rows).to(DEV),
+        max(new),
+        hd**-0.5,
+    )
 
 
 @pytest.mark.parametrize(
@@ -160,8 +186,19 @@ def test_ops_bind_once_per_key_by_race():
     ops = Ops({"delta": ["triton", "fla"]}, race=True)
     args, state, slots, cu, max_len = delta_case([1, 1, 1, 1])
     a = args
-    call = (a["q"], a["k"], a["v"], a["a"], a["b"], a["a_log"], a["dt_bias"], state, slots, cu,
-            max_len)  # fmt: skip
+    call = (
+        a["q"],
+        a["k"],
+        a["v"],
+        a["a"],
+        a["b"],
+        a["a_log"],
+        a["dt_bias"],
+        state,
+        slots,
+        cu,
+        max_len,
+    )
     before = state.clone()
     ops("delta", *call)
     (key,) = list(ops.choices)

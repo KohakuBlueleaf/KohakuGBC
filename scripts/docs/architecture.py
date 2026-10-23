@@ -58,31 +58,67 @@ WINDOW = [
 
 
 def box(ax, x, y, w, h, face=CARD, edge=LINE, lw=1.4, r=0.1, z=1):
-    ax.add_patch(patches.FancyBboxPatch(
-        (x, y), w, h, boxstyle=f"round,pad=0,rounding_size={r}", facecolor=face, edgecolor=edge,
-        lw=lw, zorder=z,
-    ))  # fmt: skip
+    ax.add_patch(
+        patches.FancyBboxPatch(
+            (x, y),
+            w,
+            h,
+            boxstyle=f"round,pad=0,rounding_size={r}",
+            facecolor=face,
+            edgecolor=edge,
+            lw=lw,
+            zorder=z,
+        )
+    )
 
 
 def arrow(ax, a, b, colour=MUTED, lw=1.8, rad=0.0, dashed=False):
-    ax.annotate("", xy=b, xytext=a, zorder=6, arrowprops={
-        "arrowstyle": "-|>,head_length=0.6,head_width=0.3", "color": colour, "lw": lw,
-        "connectionstyle": f"arc3,rad={rad}", "linestyle": (0, (5, 3)) if dashed else "-",
-        "shrinkA": 0, "shrinkB": 0,
-    })  # fmt: skip
+    ax.annotate(
+        "",
+        xy=b,
+        xytext=a,
+        zorder=6,
+        arrowprops={
+            "arrowstyle": "-|>,head_length=0.6,head_width=0.3",
+            "color": colour,
+            "lw": lw,
+            "connectionstyle": f"arc3,rad={rad}",
+            "linestyle": (0, (5, 3)) if dashed else "-",
+            "shrinkA": 0,
+            "shrinkB": 0,
+        },
+    )
 
 
 def text(ax, x, y, s, size, colour=INK, bold=False, mono=False, **kw):
     weight = "bold" if bold else "normal"
     family = "monospace" if mono else None
-    ax.text(x, y, s, fontsize=size, color=colour, fontweight=weight, family=family,
-            va=kw.pop("va", "top"), zorder=7, **kw)  # fmt: skip
+    ax.text(
+        x,
+        y,
+        s,
+        fontsize=size,
+        color=colour,
+        fontweight=weight,
+        family=family,
+        va=kw.pop("va", "top"),
+        zorder=7,
+        **kw,
+    )
 
 
 def thumb(ax, path, x, y, zoom, edge):
     img = ImageOps.fit(ImageOps.exif_transpose(Image.open(path)).convert("RGB"), (160, 160))
-    ax.add_artist(AnnotationBbox(OffsetImage(img, zoom=zoom), (x, y), frameon=True, pad=0.06,
-                                 bboxprops={"edgecolor": edge, "lw": 2.4}, zorder=8))  # fmt: skip
+    ax.add_artist(
+        AnnotationBbox(
+            OffsetImage(img, zoom=zoom),
+            (x, y),
+            frameon=True,
+            pad=0.06,
+            bboxprops={"edgecolor": edge, "lw": 2.4},
+            zorder=8,
+        )
+    )
 
 
 def main() -> int:
@@ -108,11 +144,20 @@ def main() -> int:
     text(ax, 0.25, top - 0.38, "written sequentially: gbc.kir", s)
     box(ax, 0.2, 1.15, 4.75, 7.55, face=CARD)
     for i, line in enumerate(CODE):
-        colour = LANE["embed"] if "embedder" in line or "lane=" in line else (
-            LANE["vlm"] if "ask" in line else INK)  # fmt: skip
+        colour = (
+            LANE["embed"]
+            if "embedder" in line or "lane=" in line
+            else (LANE["vlm"] if "ask" in line else INK)
+        )
         text(ax, 0.35, 8.55 - i * 0.37, line, s - 1.5, colour=colour, mono=True)
-    text(ax, 0.25, 0.95, "one image in, one GBC graph out;\nevery choice in `controls`", s - 1,
-         colour=MUTED)  # fmt: skip
+    text(
+        ax,
+        0.25,
+        0.95,
+        "one image in, one GBC graph out;\nevery choice in `controls`",
+        s - 1,
+        colour=MUTED,
+    )
 
     # ---- 2. many image jobs -------------------------------------------------------------------
     x2 = 5.35
@@ -120,8 +165,14 @@ def main() -> int:
     text(ax, x2, top - 0.38, "each a thread of the program", s)
     box(ax, x2, 7.55, 3.6, 1.1)
     text(ax, x2 + 0.15, 8.55, "Code memory", s, bold=True)
-    text(ax, x2 + 0.15, 8.18, "gbc.kir decoded once, shared;\na job holds only addresses", s - 2,
-         colour=MUTED)  # fmt: skip
+    text(
+        ax,
+        x2 + 0.15,
+        8.18,
+        "gbc.kir decoded once, shared;\na job holds only addresses",
+        s - 2,
+        colour=MUTED,
+    )
     box(ax, x2, 6.2, 3.6, 1.15)
     text(ax, x2 + 0.15, 7.25, "Source", s, bold=True)
     text(ax, x2 + 0.15, 6.88, "folder · jsonl · trace", s - 2, colour=MUTED)
@@ -137,12 +188,25 @@ def main() -> int:
         box(ax, x2 + 0.15, y - 0.68, 3.3, 0.7, face=CARD, edge=JOB[k], lw=1.8, z=2)
         thumb(ax, job["image"], x2 + 0.5, y - 0.33, 0.19, JOB[k])
         text(ax, x2 + 0.9, y - 0.08, f"job {job['key']}", s - 1.5, bold=True)
-        text(ax, x2 + 0.9, y - 0.36, f"strands {job['strands']} · window {job['window']}",
-             s - 3, colour=MUTED)  # fmt: skip
+        text(
+            ax,
+            x2 + 0.9,
+            y - 0.36,
+            f"strands {job['strands']} · window {job['window']}",
+            s - 3,
+            colour=MUTED,
+        )
     box(ax, x2, 0.25, 3.6, 1.5, face=PAPER, edge=GREEN, lw=1.8)
     text(ax, x2 + 0.15, 1.65, "Sink", s, colour=GREEN, bold=True)
-    text(ax, x2 + 0.15, 1.28, "a GBC graph per image → graphs.jsonl;\nrecorded jobs replay "
-         "through KIR's\nreference interpreter to the same graph", s - 2.5, colour=INK)  # fmt: skip
+    text(
+        ax,
+        x2 + 0.15,
+        1.28,
+        "a GBC graph per image → graphs.jsonl;\nrecorded jobs replay "
+        "through KIR's\nreference interpreter to the same graph",
+        s - 2.5,
+        colour=INK,
+    )
     arrow(ax, (4.95, 8.1), (x2, 8.1), colour=INK)
 
     # ---- 3. the dispatcher ---------------------------------------------------------------------
@@ -162,11 +226,26 @@ def main() -> int:
         y = 6.4 - i * 0.42
         box(ax, x3 + 0.2, y - 0.34, w3 - 0.4, 0.36, face=CARD, edge=LINE, lw=1.0, r=0.05, z=2)
         lane = {"chat": "vlm", "detector": "detect", "embedder": "embed"}.get(node)
-        text(ax, x3 + 0.3, y - 0.06, node, s - 2.5, colour=LANE[lane] if lane else INK, mono=True,
-             bold=bool(lane))  # fmt: skip
+        text(
+            ax,
+            x3 + 0.3,
+            y - 0.06,
+            node,
+            s - 2.5,
+            colour=LANE[lane] if lane else INK,
+            mono=True,
+            bold=bool(lane),
+        )
         text(ax, x3 + 1.35, y - 0.06, slots, s - 3, mono=True)
-        text(ax, x3 + w3 - 0.3, y - 0.06, state, s - 3, colour=GREEN if state == "done" else
-             (BLUE if state == "issued" else MUTED), ha="right")  # fmt: skip
+        text(
+            ax,
+            x3 + w3 - 0.3,
+            y - 0.06,
+            state,
+            s - 3,
+            colour=GREEN if state == "done" else (BLUE if state == "issued" else MUTED),
+            ha="right",
+        )
     rows = [
         ("Ready set + issue", "across every job: oldest job first", 3.65),
         ("Writeback", "fill the slot, wake its readers, resolve branches", 2.8),
@@ -175,8 +254,15 @@ def main() -> int:
     for title, body, y in rows:
         text(ax, x3 + 0.2, y, title, s, bold=True)
         text(ax, x3 + 0.2, y - 0.36, body, s - 2.5, colour=MUTED)
-    text(ax, x3 + 0.2, 0.95, "a statement issues once its inputs are filled, in any order;\n"
-         "its results still retire in program order", s - 2.5, colour=INK)  # fmt: skip
+    text(
+        ax,
+        x3 + 0.2,
+        0.95,
+        "a statement issues once its inputs are filled, in any order;\n"
+        "its results still retire in program order",
+        s - 2.5,
+        colour=INK,
+    )
     arrow(ax, (x2 + 3.6, 3.5), (x3, 3.5), colour=INK)
     arrow(ax, (x3, 1.4), (x2 + 3.6, 1.0), colour=GREEN)
 
@@ -185,28 +271,61 @@ def main() -> int:
     text(ax, x4, top, "lanes", s + 4, bold=True)
     text(ax, x4, top - 0.38, "queue, batch, pick a unit", s)
     lanes = [
-        ("INLINE · on the dispatcher", "kir.std, next_step, take, push:\nno handoff",
-         INK, 8.6, 1.0),
-        ("STREAM LANE · vlm", "chat: paces only; the engine\nbatches; load → admission",
-         LANE["vlm"], 7.35, 1.15),
-        ("BATCH LANE · detect", "detector: former size · wait;\ncrops of several images",
-         LANE["detect"], 5.95, 1.15),
-        ("BATCH LANE · embed", "embedder: names of several\nimages in one forward",
-         LANE["embed"], 4.55, 1.15),
-        ("CALL LANE · cpu", "crops, pictures, parsing,\nresolution: a unit per item",
-         LANE["cpu"], 3.15, 1.15),
-    ]  # fmt: skip
+        (
+            "INLINE · on the dispatcher",
+            "kir.std, next_step, take, push:\nno handoff",
+            INK,
+            8.6,
+            1.0,
+        ),
+        (
+            "STREAM LANE · vlm",
+            "chat: paces only; the engine\nbatches; load → admission",
+            LANE["vlm"],
+            7.35,
+            1.15,
+        ),
+        (
+            "BATCH LANE · detect",
+            "detector: former size · wait;\ncrops of several images",
+            LANE["detect"],
+            5.95,
+            1.15,
+        ),
+        (
+            "BATCH LANE · embed",
+            "embedder: names of several\nimages in one forward",
+            LANE["embed"],
+            4.55,
+            1.15,
+        ),
+        (
+            "CALL LANE · cpu",
+            "crops, pictures, parsing,\nresolution: a unit per item",
+            LANE["cpu"],
+            3.15,
+            1.15,
+        ),
+    ]
     for title, body, colour, y, h in lanes:
         box(ax, x4, y - h, w4, h, face=PAPER, edge=colour, lw=1.8)
         text(ax, x4 + 0.12, y - 0.1, title, s - 2, colour=colour, bold=True)
         text(ax, x4 + 0.12, y - 0.45, body, s - 3.2, colour=INK)
         if title.startswith(("STREAM", "BATCH", "CALL")):
             for q in range(5):
-                ax.add_patch(patches.Rectangle((x4 + w4 - 0.23 - q * 0.21, y - h + 0.1), 0.16,
-                                               0.2, facecolor=JOB[q % 3], edgecolor=PAPER,
-                                               zorder=4))  # fmt: skip
-    text(ax, x4, 1.9, "calls of every job meet here;\nseveral units per lane", s - 2.5,
-         colour=MUTED)  # fmt: skip
+                ax.add_patch(
+                    patches.Rectangle(
+                        (x4 + w4 - 0.23 - q * 0.21, y - h + 0.1),
+                        0.16,
+                        0.2,
+                        facecolor=JOB[q % 3],
+                        edgecolor=PAPER,
+                        zorder=4,
+                    )
+                )
+    text(
+        ax, x4, 1.9, "calls of every job meet here;\nseveral units per lane", s - 2.5, colour=MUTED
+    )
     arrow(ax, (x3 + w3, 4.2), (x4, 4.2), colour=INK)
 
     # ---- 5. engines ------------------------------------------------------------------------------
@@ -214,13 +333,25 @@ def main() -> int:
     text(ax, x5, top, "engines", s + 4, bold=True)
     text(ax, x5, top - 0.38, "behind one contract", s)
     engines = [
-        ("Stream engine", "API (OpenAI, Anthropic),\nvLLM in-process, qwen35",
-         VIOLET, 7.35, 1.15, 6.8),
-        ("Batch engine", "TorchEngine: OWLv2 or SAM 3;\none batch mixes images",
-         GOLD, 5.95, 1.15, 5.4),
+        (
+            "Stream engine",
+            "API (OpenAI, Anthropic),\nvLLM in-process, qwen35",
+            VIOLET,
+            7.35,
+            1.15,
+            6.8,
+        ),
+        (
+            "Batch engine",
+            "TorchEngine: OWLv2 or SAM 3;\none batch mixes images",
+            GOLD,
+            5.95,
+            1.15,
+            5.4,
+        ),
         ("Batch engine", "TorchEngine: EmbeddingGemma", GOLD, 4.55, 1.15, 4.0),
         ("Call engine", "Python workers:\nthreads or processes", GREEN, 3.15, 1.15, 2.6),
-    ]  # fmt: skip
+    ]
     for title, body, colour, y, h, mid in engines:
         box(ax, x5, y - h, w5, h, face=CARD, edge=colour, lw=1.6)
         text(ax, x5 + 0.12, y - 0.1, title, s - 1.5, colour=colour, bold=True)
@@ -232,8 +363,14 @@ def main() -> int:
     ys = [2.0, 0.45, 0.45]
     ax.plot(xs[:2], ys[:2], color=BLUE, lw=2.0, zorder=6, solid_capstyle="round")
     arrow(ax, (xs[1], ys[1]), (xs[2], ys[2]), colour=BLUE, lw=2.0)
-    text(ax, x4 + 0.1, 0.92, "results from every engine → the dispatcher's inbox → writeback",
-         s - 2, colour=BLUE)  # fmt: skip
+    text(
+        ax,
+        x4 + 0.1,
+        0.92,
+        "results from every engine → the dispatcher's inbox → writeback",
+        s - 2,
+        colour=BLUE,
+    )
     fig.savefig(args.out, dpi=args.dpi, facecolor=PAPER, pil_kwargs={"quality": 90})
     print(args.out)
     return 0

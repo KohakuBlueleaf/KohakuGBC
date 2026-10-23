@@ -58,8 +58,18 @@ class Settings:
 
 
 class Engine:
-    def __init__(self, model, ops, pools, grammars, tokenizer, settings: Settings,
-                 max_pages: int, stop: set[int], log=None):  # fmt: skip
+    def __init__(
+        self,
+        model,
+        ops,
+        pools,
+        grammars,
+        tokenizer,
+        settings: Settings,
+        max_pages: int,
+        stop: set[int],
+        log=None,
+    ):
         self.model, self.ops, self.pools, self.grammars = model, ops, pools, grammars
         self.tokenizer, self.s = tokenizer, settings
         self.max_pages, self.stops = max_pages, set(stop)
@@ -79,14 +89,26 @@ class Engine:
         self.failure: BaseException | None = None
         self.failure_text = ""
         self.counts = {
-            "steps": 0, "graph_steps": 0, "mixed_steps": 0, "prompt_tokens": 0,
-            "cached_tokens": 0, "generated_tokens": 0, "forced_tokens": 0, "finished": 0,
-            "cancelled": 0, "errors": 0,
-        }  # fmt: skip
+            "steps": 0,
+            "graph_steps": 0,
+            "mixed_steps": 0,
+            "prompt_tokens": 0,
+            "cached_tokens": 0,
+            "generated_tokens": 0,
+            "forced_tokens": 0,
+            "finished": 0,
+            "cancelled": 0,
+            "errors": 0,
+        }
         self.times = {
-            "build": 0.0, "launch": 0.0, "gpu": 0.0, "grammar": 0.0, "sample": 0.0,
-            "accept": 0.0, "vision_inline": 0.0,
-        }  # fmt: skip
+            "build": 0.0,
+            "launch": 0.0,
+            "gpu": 0.0,
+            "grammar": 0.0,
+            "sample": 0.0,
+            "accept": 0.0,
+            "vision_inline": 0.0,
+        }
 
     # ---- outside the engine thread -----------------------------------------------------------
 
@@ -230,9 +252,10 @@ class Engine:
                 seq.embeds = self.model.vision(prep.pixels, prep.grid)
                 self.times["vision_inline"] += time.perf_counter() - t0
             seq.points = [
-                (length, key) for length, key in prep.boundaries
+                (length, key)
+                for length, key in prep.boundaries
                 if length > seq.cached and pools.find(key) is None
-            ]  # fmt: skip
+            ]
             self.prefilling.append(seq)
 
     # ---- a step ------------------------------------------------------------------------------
@@ -321,13 +344,18 @@ class Engine:
             logits = self.graphs.run(ids_t, pos_t, slots, pages, ctx_t, write_t)
         else:
             step = Step(
-                ids=ids_t, positions=pos_t, cu=torch.tensor(cu, dtype=torch.int32).to(self.dev),
-                slots=slots, pages=pages, ctx=ctx_t, write=write_t,
+                ids=ids_t,
+                positions=pos_t,
+                cu=torch.tensor(cu, dtype=torch.int32).to(self.dev),
+                slots=slots,
+                pages=pages,
+                ctx=ctx_t,
+                write=write_t,
                 last=torch.tensor(last, dtype=torch.long).to(self.dev),
                 max_len=max(b - a for a, b in zip(cu[:-1], cu[1:])),
                 image_rows=torch.cat(rows).to(self.dev) if rows else None,
                 image_embeds=torch.cat(embeds) if embeds else None,
-            )  # fmt: skip
+            )
             logits = self.model.forward(self.ops, self.pools, step)
         end.record()
         # Snapshots after the step, in stream order; prompts done leave prefill
@@ -364,17 +392,22 @@ class Engine:
         record = None
         if self.log is not None:
             record = {
-                "kind": "graph" if graph else "eager", "decode": len(decode),
-                "decode_tokens": cu[len(decode)], "prefill_seqs": len(chunks),
-                "prefill_tokens": n_prompt, "images": len(rows),
+                "kind": "graph" if graph else "eager",
+                "decode": len(decode),
+                "decode_tokens": cu[len(decode)],
+                "prefill_seqs": len(chunks),
+                "prefill_tokens": n_prompt,
+                "images": len(rows),
                 "build_ms": round((t_build - t0) * 1e3, 3),
                 "launch_ms": round((t_launch - t_build) * 1e3, 3),
                 "masks_ms": round((t_masks - t_launch) * 1e3, 3),
                 "draw_ms": round((t_drawn - t_masks) * 1e3, 3),
                 "accept_ms": round((t_end - t_drawn) * 1e3, 3),
-                "waiting": len(self.waiting), "prefilling": len(self.prefilling),
-                "decoding": len(self.decoding), "free_pages": len(self.pools.free_pages),
-            }  # fmt: skip
+                "waiting": len(self.waiting),
+                "prefilling": len(self.prefilling),
+                "decoding": len(self.decoding),
+                "free_pages": len(self.pools.free_pages),
+            }
         self.timing.append((start, end, record))
         self._timed()
         return True
@@ -394,8 +427,9 @@ class Engine:
 
     def _fill_masks(self, seqs: list[Seq]) -> None:
         constrained = [s for s in seqs if s.matcher is not None]
-        self.grammars.fill([s.matcher for s in constrained], self.masks,
-                           [s.slot for s in constrained])  # fmt: skip
+        self.grammars.fill(
+            [s.matcher for s in constrained], self.masks, [s.slot for s in constrained]
+        )
         for s in seqs:
             s.mask_ready = True
 

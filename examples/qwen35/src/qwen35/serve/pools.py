@@ -42,8 +42,16 @@ class Plan:
     reasons: list[str] = field(default_factory=list)
 
 
-def plan(shape: Shape, budget: int, seqs: int, snapshots: int, page: int, state_dtype, dtype,
-         min_tokens: int) -> Plan:  # fmt: skip
+def plan(
+    shape: Shape,
+    budget: int,
+    seqs: int,
+    snapshots: int,
+    page: int,
+    state_dtype,
+    dtype,
+    min_tokens: int,
+) -> Plan:
     """Slots for ``seqs`` sequences, ``snapshots`` snapshots and the scratch slot; every byte of
     ``budget`` left after them as KV pages (at least ``min_tokens`` worth)."""
     st = torch.empty((), dtype=state_dtype).element_size()
@@ -67,9 +75,14 @@ class Pools:
         self.shape, self.page = shape, p.page
         self.max_snapshots = max_snapshots
         self.state = torch.zeros(
-            nd, p.slots, shape.value_heads, shape.key_dim, shape.value_dim,
-            dtype=state_dtype, device=device,
-        )  # fmt: skip
+            nd,
+            p.slots,
+            shape.value_heads,
+            shape.key_dim,
+            shape.value_dim,
+            dtype=state_dtype,
+            device=device,
+        )
         self.conv = torch.zeros(
             nd, p.slots, shape.conv_channels, shape.conv_width - 1, dtype=dtype, device=device
         )
