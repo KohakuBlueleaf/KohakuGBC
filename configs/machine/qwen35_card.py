@@ -32,10 +32,12 @@
 # GBC_VLM_STEP_TOKENS: vLLM's token budget per step (8192).
 # GBC_VLM_GRAPH_MAX: the largest step (tokens) vLLM captures a CUDA graph for (vLLM's default if
 #   unset).
-# GBC_STRUCTURED: prompt (default; in-process, 1 reply in 400 asked again; over HTTP, no retry)
-#   or grammar; GBC_VLM_GRAMMAR picks vLLM's grammar backend under grammar (auto, xgrammar,
-#   guidance, outlines).
+# GBC_STRUCTURED: prompt (default; in-process, 1 reply in 400 asked again; over HTTP, no retry),
+#   grammar (vLLM's structured outputs; GBC_VLM_GRAMMAR picks the backend: auto, xgrammar,
+#   guidance, outlines) or kohaku (KohakuvLLM's grammar logits processor; KOHAKU_GRAMMAR_WS).
 # GBC_VLM_URL: a `vllm serve` base URL (http://127.0.0.1:PORT/v1); unset: in-process.
+# GBC_VLM_FRONTEND (in-process): vllm, or kohakuvllm (KohakuvLLM's frontend: GBC_VLM_PREP_WORKERS
+#   preparing processes, its vision tower here, GBC_VLM_VISION_FP8=1 for FP8 linears on sm89+).
 # GBC_VLM_STATS=1: vLLM's stats line every 5 s.
 #   GBC_IMAGES=path/to/images gbc run configs/machine/qwen35_card.py configs/controls/mid.py
 
@@ -76,6 +78,11 @@ _VLLM = {
     **({"scheduler_cls": _SCHEDULER} if _SCHEDULER else {}),
     **({"attention_backend": _ATTN} if _ATTN else {}),
     "structured_outputs_config": {"backend": os.environ.get("GBC_VLM_GRAMMAR", "auto")},
+    **(
+        {"logits_processors": ["kohakuvllm.grammar:JsonSchemaLogits"]}
+        if _STRUCTURED == "kohaku"
+        else {}
+    ),
     "disable_log_stats": not _STATS,
 }
 _TOP = ("gpu_memory_utilization", "max_model_len", "max_num_seqs")
@@ -86,6 +93,11 @@ _INPROCESS = {
     "capacity": _LANES,
     "structured": _STRUCTURED,
     "stats_s": 5.0 if _STATS else 0.0,
+    "frontend": os.environ.get("GBC_VLM_FRONTEND", "vllm"),
+    "frontend_args": {
+        "workers": int(os.environ.get("GBC_VLM_PREP_WORKERS", "4")),
+        "vision_fp8": os.environ.get("GBC_VLM_VISION_FP8", "0") == "1",
+    },
     **{k: _VLLM[k] for k in _TOP},
     "engine_args": {
         k: v for k, v in _VLLM.items() if k not in (*_TOP, "model", "served_model_name")

@@ -12,7 +12,8 @@ import sys
 
 
 def flags(args: dict) -> list[str]:
-    """vLLM CLI flags of engine arguments: dicts as JSON, booleans as switches."""
+    """vLLM CLI flags of engine arguments: dicts as JSON, booleans as switches, lists as one
+    value each."""
     out = []
     for key, value in args.items():
         flag = "--" + key.replace("_", "-")
@@ -24,6 +25,8 @@ def flags(args: dict) -> list[str]:
                     out.append("--no-" + flag[2:])
             case dict():
                 out += [flag, json.dumps(value)]
+            case list():
+                out += [flag, *map(str, value)]
             case _:
                 out += [flag, str(value)]
     return out
