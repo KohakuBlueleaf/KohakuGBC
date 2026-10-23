@@ -61,6 +61,18 @@ def test_openai_flavours_place_the_schema_and_thinking_switch(flavour):
     assert user[-1]["text"].startswith("Please assess the image focusing on 'cup'")
 
 
+def test_kohaku_grammar_sends_the_schema_as_vllm_xargs():
+    req = entity_request()
+    body = ChatAdapter("openai", "m", structured="kohaku").prepare({"request": req}, "http").json
+    assert "structured_outputs" not in body
+    sent = json.loads(body["vllm_xargs"]["kohaku_json_schema"])
+    assert sent == specs.schema(req["schema"])
+    plain = ChatAdapter("openai", "m", structured="prompt").prepare({"request": req}, "http").json
+    assert "vllm_xargs" not in plain and "structured_outputs" not in plain
+    with pytest.raises(ValueError, match="vllm flavour"):
+        protocols.openai_body(req, "m", "sglang", {}, True, True)
+
+
 def test_batched_request_labels_each_picture():
     regions = [{"id": f"r{i}", "text": "cups", "box": [0, 0, 1, 1, None]} for i in range(3)]
     req = specs.entity_batch("x.png", regions, [picture(32, 32)] * 3)

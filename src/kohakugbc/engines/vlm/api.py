@@ -4,7 +4,9 @@ chat protocol.
 Settings: ``protocol`` (``"openai"`` or ``"anthropic"``), ``flavour`` (OpenAI-compatible
 servers: ``vllm``, ``sglang``, ``llama.cpp``, ``openai``, ``openrouter``), ``model``,
 ``sampling`` (extra body fields), ``structured`` (``grammar``: the request's JSON schema goes to
-the server; ``prompt``: the prompt alone asks for the JSON), ``endpoints``: a list of
+the server; ``kohaku``: to a vLLM server's KohakuvLLM grammar logits processor, served with
+``--logits-processors kohakuvllm.grammar:JsonSchemaLogits``; ``prompt``: the prompt alone asks
+for the JSON), ``endpoints``: a list of
 ``{"base_url", "max_inflight" (32), "rate" (requests per second, or ``[rate, burst]``),
 "api_key_env", "headers"}``; ``timeout_s`` (600), ``connect_timeout_s`` (10), ``health_path``,
 ``metrics`` (``"vllm"``: the server's running and waiting counts in the unit's load report).
@@ -40,14 +42,17 @@ class ChatAdapter:
         self.path, self.build, self.read = protocols.PROTOCOLS[protocol]
         self.model, self.flavour = model, flavour
         self.sampling = dict(sampling or {})
-        self.grammar = structured == "grammar"
+        self.grammar = structured != "prompt"
+        self.kohaku = structured == "kohaku"
 
     def check(self, signature) -> list[str]:
         return []
 
     def prepare(self, inputs: dict, protocol: str) -> HttpRequest:
         request = inputs["request"]
-        body = self.build(request, self.model, self.flavour, self.sampling, self.grammar)
+        body = self.build(
+            request, self.model, self.flavour, self.sampling, self.grammar, self.kohaku
+        )
         return HttpRequest(
             "POST", self.path, json=body, headers={"X-GBC-Request": protocols.request_id(request)}
         )
@@ -56,7 +61,7 @@ class ChatAdapter:
         return self.read(raw.json())
 
 
-STRUCTURED = ("grammar", "prompt")
+STRUCTURED = ("grammar", "prompt", "kohaku")
 METRIC = re.compile(r"^vllm:num_requests_(running|waiting)\{[^}]*\}\s+([0-9.eE+-]+)", re.M)
 
 
