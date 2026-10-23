@@ -15,25 +15,24 @@ request's crop with its boxes at or above ``--show``). ``<out>/summary.json`` ga
 in ``<out>``. ``--dtypes``: bfloat16 runs a model in bfloat16 (EfficientSAM3: under autocast;
 YOLOE runs float32 only).
 
-    python scripts/bench/detectors.py GRAPHS.jsonl IMAGE runs/bench/detectors \
+    python scripts/bench/detector/checkpoints.py GRAPHS.jsonl IMAGE runs/bench/detectors \
         --models google/owlv2-base-patch16-ensemble facebook/sam3 --dtypes bfloat16 float32
 """
 
 import argparse
 import contextlib
-import ctypes
 import json
 import os
 import statistics
 import subprocess
 import sys
 import time
-from ctypes import wintypes
 from pathlib import Path
 
 import numpy as np
 import torch
 from PIL import Image, ImageDraw, ImageFont
+from workloads import graph_file_requests, peak_gib
 
 try:
     from kohakugbc.engines.torch.modules import Owlv2Detector, Sam3Detector
@@ -53,10 +52,6 @@ try:
     from kohakuamx.torchpatch import patch_torch
 except ImportError:
     patch_torch = None
-try:
-    import resource
-except ImportError:  # Windows: the peak working set instead
-    resource = None
 
 DTYPES = {"bfloat16": torch.bfloat16, "float16": torch.float16, "float32": torch.float32}
 PALETTE = ["#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4", "#46f0f0", "#f032e6", "#9a6324"]
@@ -71,61 +66,6 @@ EFFICIENT_TEXT = "MobileCLIP-S0"
 # environment KohakuAMX's optimize_torch sets, read once when torch loads); bound, with
 # F.scaled_dot_product_attention and the norms routed to KohakuAMX's AMX kernels
 SETUPS = ("none", "bind", "amx")
-
-
-class Counters(ctypes.Structure):
-    _fields_ = [(n, ctypes.c_size_t) for n in (
-        "cb", "PageFaultCount", "PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage",
-        "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage",
-        "PagefileUsage", "PeakPagefileUsage",
-    )]  # fmt: skip
-
-
-def peak_gib() -> float | None:
-    """The process's peak working set (Windows), or its max RSS elsewhere."""
-    if sys.platform == "win32":
-        counters = Counters()
-        counters.cb = ctypes.sizeof(counters)
-        get = ctypes.windll.psapi.GetProcessMemoryInfo
-        get.argtypes = [wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD]
-        handle = ctypes.windll.kernel32.GetCurrentProcess()
-        if get(handle, ctypes.byref(counters), counters.cb):
-            return counters.PeakWorkingSetSize / 2**30
-        return None
-    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2**20
-
-
-def cut(image: np.ndarray, box) -> np.ndarray:
-    """The pixels of ``box`` (image fractions; None: the whole image), truncated as GBC cuts."""
-    if box is None:
-        return image
-    h, w = image.shape[:2]
-    return image[int(box[1] * h) : int(box[3] * h), int(box[0] * w) : int(box[2] * w)]
-
-
-def requests_of(graph: dict, image: str) -> list[dict]:
-    """The root's request, then one per entity that named parts (texts in first-seen order)."""
-    by = {v["vertex_id"]: v for v in graph["vertices"]}
-    with Image.open(image) as img:
-        pixels = np.array(img.convert("RGB"))
-    out = []
-    for v in graph["vertices"]:
-        texts = []
-        for e in v["out_edges"]:
-            t = by[e["target"]]
-            if (
-                e["target"] != v["vertex_id"]
-                and t["label"] != "relation"
-                and e["text"] not in texts
-            ):
-                texts.append(e["text"])
-        if not texts or v["label"] not in ("image", "entity"):
-            continue
-        b = v["bbox"]
-        box = None if v["label"] == "image" else [b["left"], b["top"], b["right"], b["bottom"]]
-        out.append({"name": v["vertex_id"] or "image", "box": box, "texts": texts,
-                    "patch": cut(pixels, box)})  # fmt: skip
-    return out
 
 
 class Gbc:
@@ -249,8 +189,7 @@ def one(args) -> int:
         applied = patch_torch(omp=False)
     if args.setups[0] != "none":
         torch.set_num_interop_threads(1)
-    graph = json.loads(Path(args.graphs).read_text(encoding="utf-8").splitlines()[0])
-    requests = requests_of(graph, args.image)
+    requests = graph_file_requests(args.graphs, args.image)
     det = detector(args.models[0], args.threshold)
     start = time.perf_counter()
     det.load(args.device, args.dtypes[0])
@@ -278,11 +217,16 @@ def one(args) -> int:
         x0, y0, x1, y1 = r["box"] or [0.0, 0.0, 1.0, 1.0]
         found = []
         for box, score, label in zip(raw["boxes"], raw["scores"], raw["labels"]):
-            frac = [x0 + box[0] / w * (x1 - x0), y0 + box[1] / h * (y1 - y0),
-                    x0 + box[2] / w * (x1 - x0), y0 + box[3] / h * (y1 - y0)]  # fmt: skip
+            frac = [
+                x0 + box[0] / w * (x1 - x0),
+                y0 + box[1] / h * (y1 - y0),
+                x0 + box[2] / w * (x1 - x0),
+                y0 + box[3] / h * (y1 - y0),
+            ]
             found.append({"text": r["texts"][label], "box": frac, "score": score, "px": box})
-        detections.append({"request": r["name"], "box": r["box"], "texts": r["texts"],
-                           "found": found})  # fmt: skip
+        detections.append(
+            {"request": r["name"], "box": r["box"], "texts": r["texts"], "found": found}
+        )
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -348,8 +292,9 @@ def environment(setup: str, threads: int) -> dict:
     """A run's environment: bound setups pin torch's OpenMP threads before torch loads."""
     env = {k: v for k, v in os.environ.items() if not k.startswith(("OMP_", "KMP_"))}
     if setup != "none":
-        env.update(OMP_PROC_BIND="TRUE", OMP_PLACES="cores", OMP_DYNAMIC="FALSE",
-                   MKL_DYNAMIC="FALSE")  # fmt: skip
+        env.update(
+            OMP_PROC_BIND="TRUE", OMP_PLACES="cores", OMP_DYNAMIC="FALSE", MKL_DYNAMIC="FALSE"
+        )
         if threads:
             env["OMP_NUM_THREADS"] = str(threads)
             env["KOHAKU_AMX_THREADS"] = str(threads)
@@ -364,10 +309,16 @@ def main() -> int:
     parser.add_argument("--models", nargs="+", default=["google/owlv2-base-patch16-ensemble"])
     parser.add_argument("--dtypes", nargs="+", default=["bfloat16"], choices=sorted(DTYPES))
     parser.add_argument("--device", default="cpu")
-    parser.add_argument("--threads", type=int, nargs="+", default=[0],
-                        help="torch threads, one run each (0: its default)")  # fmt: skip
-    parser.add_argument("--setups", nargs="+", default=["none"], choices=SETUPS,
-                        help="CPU setups, one run each")  # fmt: skip
+    parser.add_argument(
+        "--threads",
+        type=int,
+        nargs="+",
+        default=[0],
+        help="torch threads, one run each (0: its default)",
+    )
+    parser.add_argument(
+        "--setups", nargs="+", default=["none"], choices=SETUPS, help="CPU setups, one run each"
+    )
     parser.add_argument("--repeat", type=int, default=3)
     parser.add_argument("--threshold", type=float, default=0.05, help="lowest score kept")
     parser.add_argument("--show", type=float, default=0.3, help="sheet: lowest score drawn")
@@ -383,15 +334,34 @@ def main() -> int:
                 for setup in args.setups:
                     tag = model.split("/")[-1].replace(":", "-")
                     out = Path(args.out) / f"{tag}_{dtype}_t{threads}_{setup}"
-                    command = [sys.executable, __file__, args.graphs, args.image, str(out),
-                               "--one", "--models", model, "--dtypes", dtype,
-                               "--device", args.device, "--threads", str(threads),
-                               "--setups", setup, "--repeat", str(args.repeat),
-                               "--threshold", str(args.threshold),
-                               "--show", str(args.show)]  # fmt: skip
+                    command = [
+                        sys.executable,
+                        __file__,
+                        args.graphs,
+                        args.image,
+                        str(out),
+                        "--one",
+                        "--models",
+                        model,
+                        "--dtypes",
+                        dtype,
+                        "--device",
+                        args.device,
+                        "--threads",
+                        str(threads),
+                        "--setups",
+                        setup,
+                        "--repeat",
+                        str(args.repeat),
+                        "--threshold",
+                        str(args.threshold),
+                        "--show",
+                        str(args.show),
+                    ]
                     if subprocess.run(command, env=environment(setup, threads)).returncode:
-                        failed.append({"model": model, "dtype": dtype, "threads": threads,
-                                       "setup": setup})  # fmt: skip
+                        failed.append(
+                            {"model": model, "dtype": dtype, "threads": threads, "setup": setup}
+                        )
 
     runs = []
     for path in sorted(Path(args.out).glob("*/result.json")):
@@ -400,11 +370,13 @@ def main() -> int:
     summary = {"runs": runs, "failed_last_call": failed}
     (Path(args.out) / "summary.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     for r in runs:
-        print(f"{r['model']:40s} {r['dtype']:9s} t{r['threads']:<3d} {r.get('setup', 'none'):4s} "
-              f"load {r['load_s']:6.1f} s  "
-              f"first {r['first_s']:6.2f} s  workload {r['workload_s']:6.2f} s  "
-              f"peak {r['peak_gib'] or 0:5.2f} GiB  device "
-              f"{r.get('device_peak_gib') or 0:5.2f} GiB")  # fmt: skip
+        print(
+            f"{r['model']:40s} {r['dtype']:9s} t{r['threads']:<3d} {r.get('setup', 'none'):4s} "
+            f"load {r['load_s']:6.1f} s  "
+            f"first {r['first_s']:6.2f} s  workload {r['workload_s']:6.2f} s  "
+            f"peak {r['peak_gib'] or 0:5.2f} GiB  device "
+            f"{r.get('device_peak_gib') or 0:5.2f} GiB"
+        )
     return 1 if failed else 0
 
 
