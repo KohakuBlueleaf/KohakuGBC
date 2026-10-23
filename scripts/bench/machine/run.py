@@ -158,6 +158,7 @@ def main() -> int:
         "jobs": len(records),
         "ok": len(ok),
         "failed": len(failed),
+        "no_graph": sum(1 for r in records if r.ok and r.outputs.get("graph") is None),
         "first_failures": failed[:5],
         "build_load_s": round(t1 - t0, 1),
         "run_s": round(t2 - t1, 1),
