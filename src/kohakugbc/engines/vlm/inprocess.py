@@ -3,14 +3,24 @@ Togeari's stream contract.
 
 Each unit is one ``AsyncLLM`` (vLLM runs its engine core in a child process). ``submit`` hands
 the request to the unit's event-loop thread and returns; the loop builds the prompt with the
-model's chat template (thinking off), decodes the pictures, generates with the request's JSON
-schema as structured output, and answers. ``cancel`` aborts the request in vLLM.
+model's chat template (thinking off), decodes the pictures, generates, and answers. ``cancel``
+cancels the request's task, and vLLM's ``generate`` aborts the request itself when its task is
+cancelled, wherever the request is (an ``abort`` sent while vLLM is still adding the request can
+leave it running unseen).
+
+``structured`` picks how a request's JSON schema holds the reply: ``prompt`` (the prompts already
+describe the JSON; a reply that GBC's reader cannot read as the schema's object is asked again, up
+to ``retries`` times, and the last reply is answered either way) or ``grammar`` (vLLM constrains
+decoding to the schema). On Qwen3.5-4B with GBC's requests, 1 reply in 400 needs the retry, and
+``grammar`` costs a fifth of the engine's throughput (its bitmask is filled on the CPU every step).
 
 Settings: ``model``; ``units`` (1); ``devices`` (per unit, the CUDA devices it uses; several
 mean tensor parallel over them); ``gpu_memory_utilization`` (0.5), ``max_model_len`` (16384),
 ``max_num_seqs`` (64), ``dtype`` (``bfloat16``), ``capacity`` (requests in flight per unit;
-default twice ``max_num_seqs``), ``engine_args`` (any other ``AsyncEngineArgs`` field),
-``sampling`` (extra ``SamplingParams`` fields).
+default twice ``max_num_seqs``), ``structured`` (``prompt``), ``retries`` (1), ``engine_args``
+(any other ``AsyncEngineArgs`` field: ``mamba_ssm_cache_dtype``, ``scheduler_cls``, ...),
+``sampling`` (extra ``SamplingParams`` fields), ``stats_s`` (0: off; else vLLM's stats line
+every that many seconds, with ``disable_log_stats=False`` in ``engine_args``).
 """
 
 import asyncio
@@ -31,8 +41,34 @@ from kohakugbc.engines import placement
 from kohakugbc.engines.adapters import VllmChatAdapter
 from kohakugbc.engines.registry import Slot, entry
 from kohakugbc.nodes.specs import chat as specs
+from kohakugbc.nodes.specs.parse import reply_ok
 
 _START_LOCK = threading.Lock()
+STRUCTURED = ("prompt", "grammar")
+
+
+def prompt_parts(processor, request: dict) -> tuple[str, list]:
+    """The chat-templated prompt text (thinking off) and the request's pictures, decoded."""
+    content = []
+    for label, _ in request["images"]:
+        if label is not None:
+            content.append({"type": "text", "text": label})
+        content.append({"type": "image"})
+    content.append({"type": "text", "text": request["query"]})
+    messages = []
+    if request["system"] is not None:
+        messages.append({"role": "system", "content": request["system"]})
+    messages.append({"role": "user", "content": content})
+    text = processor.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
+    )
+    pictures = []
+    for _, picture in request["images"]:
+        if picture is None:
+            raise ValueError("an empty crop cannot be sent")
+        with Image.open(io.BytesIO(picture["jpeg"])) as img:
+            pictures.append(img.convert("RGB"))
+    return text, pictures
 
 
 class VllmUnit(EngineBase):
@@ -47,9 +83,15 @@ class VllmUnit(EngineBase):
         capacity=None,
         name=None,
         sampling: dict | None = None,
+        structured: str = "prompt",
+        retries: int = 1,
+        stats_s: float = 0.0,
         **engine_args,
     ):
         super().__init__(name or "vllm")
+        if structured not in STRUCTURED:
+            raise ValueError(f"structured {structured!r}: one of {STRUCTURED}")
+        self.structured, self.retries, self.stats_s = structured, int(retries), float(stats_s)
         self.model, self.devices = model, list(devices or [])
         self.engine_args = {
             "dtype": "bfloat16",
@@ -70,7 +112,7 @@ class VllmUnit(EngineBase):
         self.loop: asyncio.AbstractEventLoop | None = None
         self.llm: AsyncLLM | None = None
         self.processor = None
-        self.counts = {"items": 0, "ok": 0, "errors": 0, "cancelled": 0}
+        self.counts = {"items": 0, "ok": 0, "errors": 0, "cancelled": 0, "retries": 0}
 
     # ---- lifecycle -------------------------------------------------------------------------
 
@@ -111,7 +153,17 @@ class VllmUnit(EngineBase):
 
     async def _create(self) -> AsyncLLM:
         args = AsyncEngineArgs(model=self.model, **self.engine_args)
-        return AsyncLLM.from_engine_args(args)
+        llm = AsyncLLM.from_engine_args(args)
+        if self.stats_s > 0:
+            asyncio.get_running_loop().create_task(self._log_stats(llm))
+        return llm
+
+    async def _log_stats(self, llm: AsyncLLM) -> None:
+        """vLLM's own stats log line (running / waiting requests, throughput, cache use) every
+        ``stats_s`` seconds; vLLM prints it only when asked."""
+        while self.llm is None or self.llm is llm:
+            await asyncio.sleep(self.stats_s)
+            await llm.do_log_stats()
 
     def stop(self) -> None:
         if self.llm is None:
@@ -154,9 +206,6 @@ class VllmUnit(EngineBase):
         return ticket
 
     def cancel(self, ticket) -> None:
-        """Cancels the request's task: vLLM's ``generate`` aborts the request itself when its
-        task is cancelled, wherever the request is (an ``abort`` sent while vLLM is still
-        adding the request can leave it running unseen)."""
         with self.lock:
             state = self.tickets.get(ticket)
             if state is None:
@@ -167,47 +216,38 @@ class VllmUnit(EngineBase):
 
     # ---- the work, on the unit's loop ------------------------------------------------------------
 
-    def _prompt(self, request: dict) -> dict:
-        content = []
-        for label, _ in request["images"]:
-            if label is not None:
-                content.append({"type": "text", "text": label})
-            content.append({"type": "image"})
-        content.append({"type": "text", "text": request["query"]})
-        messages = []
-        if request["system"] is not None:
-            messages.append({"role": "system", "content": request["system"]})
-        messages.append({"role": "user", "content": content})
-        text = self.processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
-        )
-        pictures = []
-        for _, picture in request["images"]:
-            if picture is None:
-                raise ValueError("an empty crop cannot be sent")
-            with Image.open(io.BytesIO(picture["jpeg"])) as img:
-                pictures.append(img.convert("RGB"))
-        prompt = {"prompt": text}
-        if pictures:
-            prompt["multi_modal_data"] = {"image": pictures}
-        return prompt
+    async def _generate(self, prompt: dict, params: SamplingParams, rid: str) -> str:
+        final = None
+        async for out in self.llm.generate(prompt, params, rid):
+            final = out
+        return final.outputs[0].text if final is not None and final.outputs else ""
 
     async def _run(self, ticket: int, item, state: dict) -> None:
         try:
             request = item.payload()
-            prompt = await asyncio.get_running_loop().run_in_executor(None, self._prompt, request)
+            text, pictures = await asyncio.get_running_loop().run_in_executor(
+                None, prompt_parts, self.processor, request
+            )
+            prompt = {"prompt": text}
+            if pictures:
+                prompt["multi_modal_data"] = {"image": pictures}
             schema = specs.schema(request["schema"]) if request["schema"] else None
+            grammar = schema is not None and self.structured == "grammar"
             params = SamplingParams(
                 temperature=request["temperature"],
                 max_tokens=request["max_tokens"],
-                structured_outputs=StructuredOutputsParams(json=schema) if schema else None,
+                structured_outputs=StructuredOutputsParams(json=schema) if grammar else None,
                 **self.sampling,
             )
-            final = None
-            async for out in self.llm.generate(prompt, params, state["rid"]):
-                final = out
-            text = final.outputs[0].text if final is not None and final.outputs else ""
-            result = Cancelled() if state["cancelled"] else Ok(item.finish(text), True)
+            for attempt in range(self.retries + 1):
+                rid = state["rid"] if attempt == 0 else f"{state['rid']}-{attempt}"
+                reply = await self._generate(prompt, params, rid)
+                if grammar or reply_ok(reply, request["schema"], schema):
+                    break
+                if attempt < self.retries:
+                    with self.lock:
+                        self.counts["retries"] += 1
+            result = Cancelled() if state["cancelled"] else Ok(item.finish(reply), True)
         except asyncio.CancelledError:
             result = Cancelled()
         except Exception as exc:  # noqa: BLE001
@@ -227,17 +267,13 @@ def vllm_units(settings: dict, shared: dict) -> Slot:
     model = settings.pop("model")
     n = int(settings.pop("units", 1))
     devices = settings.pop("devices", None) or [None] * n
-    capacity = settings.pop("capacity", None)
-    sampling = settings.pop("sampling", None)
     lane = settings.pop("lane", None) or {}
     extra = settings.pop("engine_args", None) or {}
     units = [
         VllmUnit(
             model,
             devices=d if isinstance(d, list) else ([] if d is None else [d]),
-            capacity=capacity,
             name=f"vllm-{i}",
-            sampling=sampling,
             **settings,
             **extra,
         )

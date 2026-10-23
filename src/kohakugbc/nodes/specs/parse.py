@@ -31,6 +31,34 @@ def load_json(text: str) -> dict | None:
     return obj if isinstance(obj, dict) else None
 
 
+def load_relations(text: str) -> dict | None:
+    """A relation reply: the JSON object, or a bare list of sentences (which a model writes
+    without a schema to hold it to the object)."""
+    obj = load_json(text)
+    if obj is not None:
+        return obj
+    match = re.search(r"\[.*\]", text, re.DOTALL)
+    if match is None:
+        return None
+    try:
+        items = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+    return {"relations": items} if isinstance(items, list) else None
+
+
+READERS = {"relation.json": load_relations}
+
+
+def reply_ok(text: str, schema_name: str | None, schema: dict | None) -> bool:
+    """Whether a reply reads as the schema's object with its required keys (any reply passes
+    when the request has no schema)."""
+    if schema is None:
+        return True
+    obj = READERS.get(schema_name, load_json)(text)
+    return obj is not None and all(k in obj for k in schema.get("required", []))
+
+
 def _items(obj: dict, key: str) -> list[tuple[str, str]]:
     items = []
     for item in obj.get(key) or []:
@@ -89,7 +117,7 @@ def legacy_entity(text: str) -> str:
 
 
 def legacy_relation(text: str) -> str:
-    obj = load_json(text)
+    obj = load_relations(text)
     if obj is None:
         return ""
     return "\n".join(f"- {s}" for s in obj.get("relations") or [] if isinstance(s, str))
