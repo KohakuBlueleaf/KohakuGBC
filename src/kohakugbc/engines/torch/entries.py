@@ -16,11 +16,13 @@ otherwise), ``native`` (``max_pairs`` 16 pairs per fusion pass, ``max_crops`` 4 
 pass, ``text_cache`` 4096, ``kernels`` true, ``fusion_graph`` true, ``fusion_buckets`` ``exact``,
 ``text_graph`` true, ``fp8`` (``row`` / ``mx``: the ViT's linears in fp8; none by default),
 ``fp8_encoder`` (the DETR encoder's MLPs too), ``text_device`` (``cpu``: the text encoder on the
-host), ``budget_gb`` (caps fitted from the card's measured memory plan);
+host), ``budget_gb`` (caps fitted from the card's measured memory plan), ``capture`` (``load``:
+every CUDA graph captured at load, other shapes uncaptured; ``lazy``: on first use);
 dtype ``auto``: bfloat16 on sm80+, float16 before) or ``transformers`` (``max_units`` 4 pairs per
 decoder pass). Embedder's ``impl``: ``auto`` (GBC's own EmbeddingGemma for ``gemma3_text``
 checkpoints, sentence-transformers otherwise), ``native`` (``kernels`` true, ``graphs`` true,
-``residual`` ``float32``; dtype float32) or ``st``.
+``residual`` ``float32``, ``capture`` ``load`` with ``graph_tokens`` 4096 the largest stream
+captured; dtype float32) or ``st``.
 """
 
 from togeari.engines.torch import TorchAdapter, TorchEngine
@@ -125,6 +127,7 @@ def native_sam3(name: str, settings: dict, shared: dict, common: dict) -> Slot:
         fp8=fp8,
         fp8_encoder=bool(settings.get("fp8_encoder", False)),
         text_device=text_device,
+        capture=settings.get("capture", "load"),
         **common,
     )
     estimate = DEFAULT_SAM3_GB
@@ -176,6 +179,8 @@ def embedder(settings: dict, shared: dict) -> Slot:
             kernels=bool(settings.get("kernels", True)),
             graphs=bool(settings.get("graphs", True)),
             residual=settings.get("residual", "float32"),
+            capture=settings.get("capture", "load"),
+            graph_tokens=int(settings.get("graph_tokens", 4096)),
         )
         # float32 keeps the PoC's vectors (5090: 1 - cos <= 1e-7, 1.9-8.3x the
         # sentence-transformers fp32 throughput); bfloat16 is 1.8-1.2x faster again, with a

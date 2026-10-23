@@ -313,6 +313,7 @@ class NativeSam3Detector:
         fp8: str | None = None,
         fp8_encoder: bool = False,
         text_device: str | None = None,
+        capture: str = "load",
     ):
         self.model_name, self.box_threshold = model_name, box_threshold
         self.max_texts, self.max_batch, self.name = max_texts, max_batch, name
@@ -330,6 +331,8 @@ class NativeSam3Detector:
             fp8=fp8,
             fp8_encoder=fp8_encoder,
             text_device=text_device,
+            capture=capture,
+            max_texts=max_texts * max_batch,
         )
         self.device, self.dtype = "cpu", torch.float32
 
@@ -411,10 +414,18 @@ class NativeEmbedder:
         kernels: bool = True,
         graphs: bool = True,
         residual: str = "float32",
+        capture: str = "load",
+        graph_tokens: int = 4096,
     ):
         self.model_name, self.max_batch, self.name = model_name, max_batch, name
         self.model = EmbeddingGemma(
-            model_name, max_batch=max_batch, kernels=kernels, graphs=graphs, residual=residual
+            model_name,
+            max_batch=max_batch,
+            kernels=kernels,
+            graphs=graphs,
+            residual=residual,
+            capture=capture,
+            graph_tokens=graph_tokens,
         )
         self.device, self.dtype = "cpu", torch.float32
 
