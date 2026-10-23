@@ -18,6 +18,7 @@ from kohakugbc.engines.torch.modules import (  # noqa: E402
     Owlv2Detector,
     Sam3Detector,
     SentenceEmbedder,
+    _rows,
 )
 from kohakugbc.graph import digest  # noqa: E402
 from kohakugbc.machine import build_parts  # noqa: E402
@@ -104,8 +105,11 @@ def test_detector_batched_equals_single(detector):
 def kept(raw: dict) -> dict:
     """The detections the program's selection can keep (score above its threshold)."""
     rows = [r for r in zip(raw["boxes"], raw["scores"], raw["labels"]) if r[1] > SCORE_THRESHOLD]
-    return {"boxes": [r[0] for r in rows], "scores": [r[1] for r in rows],
-            "labels": [r[2] for r in rows]}  # fmt: skip
+    return {
+        "boxes": [r[0] for r in rows],
+        "scores": [r[1] for r in rows],
+        "labels": [r[2] for r in rows],
+    }
 
 
 def same_set(a: dict, b: dict, px: float, score: float) -> bool:
@@ -116,8 +120,16 @@ def same_set(a: dict, b: dict, px: float, score: float) -> bool:
         return False
     free = list(zip(b["boxes"], b["scores"], b["labels"]))
     for box, s, label in zip(a["boxes"], a["scores"], a["labels"]):
-        match = next((m for m in free if m[2] == label and abs(m[1] - s) <= score
-                      and max(abs(x - y) for x, y in zip(m[0], box)) <= px), None)  # fmt: skip
+        match = next(
+            (
+                m
+                for m in free
+                if m[2] == label
+                and abs(m[1] - s) <= score
+                and max(abs(x - y) for x, y in zip(m[0], box)) <= px
+            ),
+            None,
+        )
         if match is None:
             return False
         free.remove(match)
@@ -140,8 +152,8 @@ def test_sam3_batched_equals_single():
         batched = []
         for i in range(0, len(payloads), size):
             batched += [kept(r) for r in run(model, payloads[i : i + size])]
-        # Boxes come from thresholded masks: a weak mask's edge pixel may flip between batch
-        # shapes and move its box a few pixels; 2% of the crop's longer side
+        # Batch shapes change the decoder's GEMM tiling, which moves a weak instance's predicted
+        # box a little; 2% of the crop's longer side
         assert all(
             same_set(a, b, px=0.02 * max(p["patch"].shape[:2]), score=2e-3)
             for a, b, p in zip(batched, single, payloads)
@@ -149,6 +161,49 @@ def test_sam3_batched_equals_single():
     # The check sees crops whose features were swapped
     swapped = run(model, [{**payloads[0], "patch": payloads[1]["patch"]}])[0]
     assert not same_set(kept(swapped), single[0], px=0.02 * 500, score=2e-3)
+
+
+@pytest.mark.gpu
+def test_sam3_box_sources():
+    """``pred`` is transformers' instance post-processing without its masks: the same boxes and
+    scores, bit for bit; the mask sources keep the same instances and scores."""
+    if not CUDA:
+        pytest.skip("SAM 3 on the CPU is too slow for the suite")
+    model = Sam3Detector(box_source="pred")
+    model.load(DEVICE, torch.bfloat16)
+    payloads = [p for p, _ in crops(Trace(TRACE))][:6]
+    batch = model.prepare(payloads)
+    with torch.inference_mode():
+        vision = model.model.get_vision_features(
+            pixel_values=batch["pixels"]["pixel_values"].to(DEVICE, torch.bfloat16)
+        )
+        crop = torch.tensor([i for i, _, _ in batch["units"][:4]], device=DEVICE)
+        text = batch["text"].to(DEVICE)
+        outputs = model.model(
+            vision_embeds=_rows(vision, crop),
+            input_ids=text["input_ids"][:4],
+            attention_mask=text["attention_mask"][:4],
+        )
+        for key, value in outputs.items():
+            if isinstance(value, torch.Tensor) and value.is_floating_point():
+                outputs[key] = value.float()
+        sizes = [[batch["sizes"][i][1], batch["sizes"][i][0]] for i, _, _ in batch["units"][:4]]
+        reference = model.processor.post_process_instance_segmentation(
+            outputs, threshold=model.box_threshold, mask_threshold=0.5, target_sizes=sizes
+        )
+        ours = {}
+        for source in ("pred", "mask", "mask_full"):
+            model.box_source = source
+            ours[source] = model.boxes(outputs, sizes)
+    assert sum(len(r["scores"]) for r in reference) > 3
+    for ref, pred in zip(reference, ours["pred"]):
+        assert torch.equal(ref["boxes"], pred["boxes"]) and torch.equal(
+            ref["scores"], pred["scores"]
+        )
+    for source in ("mask", "mask_full"):
+        for ref, got in zip(reference, ours[source]):
+            assert torch.equal(ref["scores"], got["scores"])
+            assert got["boxes"].shape == ref["boxes"].shape
 
 
 def test_embedder_reproduces_the_poc_and_batches(embedder):

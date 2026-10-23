@@ -1,5 +1,5 @@
-"""Check the import boundary between KohakuGBC's layers over every module of src/kohakugbc
-and examples/."""
+"""Check the import boundary between KohakuGBC's layers over every module of src/ (kohakugbc
+and the standalone kohakugbc_models) and examples/."""
 
 import ast
 import sys
@@ -16,7 +16,27 @@ RULES = {
     "kohakugbc.program": PROGRAM,
     "kohakugbc.nodes": PROGRAM,
     "kohakugbc.graph": PROGRAM,
-    "kohakugbc.engines": ("kohakugbc.engines", "kohakugbc.nodes.specs", "togeari"),
+    "kohakugbc.engines": (
+        "kohakugbc.engines",
+        "kohakugbc.nodes.specs",
+        "kohakugbc_models.detect",
+        "kohakugbc_models.embed",
+        "togeari",
+    ),
+    # kohakugbc_models, never importing kohakugbc: the models GBC runs itself (below the
+    # engines) above their kernels, the kernels above the numerics
+    "kohakugbc_models.detect": (
+        "kohakugbc_models.detect",
+        "kohakugbc_models.kernels",
+        "kohakugbc_models.numerics",
+    ),
+    "kohakugbc_models.embed": (
+        "kohakugbc_models.embed",
+        "kohakugbc_models.kernels",
+        "kohakugbc_models.numerics",
+    ),
+    "kohakugbc_models.kernels": ("kohakugbc_models.kernels", "kohakugbc_models.numerics"),
+    "kohakugbc_models.numerics": ("kohakugbc_models.numerics",),
     "kohakugbc.machine": (
         *PROGRAM,
         "kohakugbc.machine",
@@ -29,7 +49,8 @@ RULES = {
     "qwen35": ("qwen35", "kohakugbc.engines", "kohakugbc.nodes.specs", "togeari"),
 }
 
-# Third-party packages each part may use; torch, transformers and vllm only in engines
+# Third-party packages each part may use; torch, transformers and vllm only in the engines and
+# the models below them
 EXTRAS = {
     "kohakugbc.program": ("PIL", "numpy"),
     "kohakugbc.nodes": ("PIL", "numpy", "scipy", "hbutils", "supervision"),
@@ -44,6 +65,17 @@ EXTRAS = {
         "vllm",
     ),
     "kohakugbc.io": ("PIL", "numpy", "pyarrow"),
+    "kohakugbc_models.detect": (
+        "PIL",
+        "numpy",
+        "torch",
+        "transformers",
+        "huggingface_hub",
+        "safetensors",
+    ),
+    "kohakugbc_models.embed": ("numpy", "torch", "transformers", "huggingface_hub", "safetensors"),
+    "kohakugbc_models.kernels": ("torch", "triton", "tilelang"),
+    "kohakugbc_models.numerics": ("torch",),
     "qwen35": (
         "PIL",
         "numpy",

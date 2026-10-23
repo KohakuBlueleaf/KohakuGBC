@@ -12,11 +12,27 @@ text), at most ``max_units`` pairs at once (each holds a copy of its crop's feat
 instances' boxes and scores above ``box_threshold``. On illustrated images it finds people,
 their parts and small objects that OWLv2 misses or boxes partly. A SAM3-LiteText checkpoint
 (``vil-uob/sam3-litetext-*``: SAM 3's vision encoder, a distilled text encoder) runs the same
-way; the checkpoint's ``model_type`` picks the model class.
+way; the checkpoint's ``model_type`` picks the model class. ``box_source`` picks the boxes:
+
+- ``pred`` (default): the model's predicted boxes, scaled to the crop, no mask work;
+- ``mask``: the box of each kept instance's mask binarized at ``mask_threshold`` on the model's
+  288^2 grid, scaled to the crop;
+- ``mask_full``: the box of the mask bilinearly resized to the crop first (transformers'
+  instance post-processing), resized a chunk of instances at a time (``mask_chunk_mib``).
+
+An instance whose binarized mask is empty keeps its predicted box. Scores are the same in every
+mode (the query score times the presence score).
+
+``NativeSam3Detector``: the same payloads, results and box sources through GBC's own SAM 3
+(``kohakugbc_models.detect.sam3``, ``sam3`` / ``sam3_video`` checkpoints).
 
 ``SentenceEmbedder``: a sentence-transformers model (EmbeddingGemma by default), its pooled
 embedding normalised, as ``SentenceTransformer.encode(..., normalize_embeddings=True)``.
 Payload the text; result the vector (float32).
+
+``NativeEmbedder``: the same payloads and results through GBC's own EmbeddingGemma
+(``kohakugbc_models.embed.gemma``): a batch's texts packed into one token stream, the pass replayed
+from CUDA graphs.
 """
 
 import numpy as np
@@ -33,6 +49,9 @@ from transformers import (
 )
 
 from kohakugbc.engines.placement import LOADING
+from kohakugbc_models.detect.boxes import BOX_SOURCES, mask_boxes
+from kohakugbc_models.detect.sam3.model import Sam3Detector as OwnSam3
+from kohakugbc_models.embed.gemma import EmbeddingGemma
 
 # By the checkpoint's model_type (facebook/sam3 is the video config; its image model is Sam3Model)
 SAM3_MODELS = {"sam3": Sam3Model, "sam3_video": Sam3Model, "sam3_lite_text": Sam3LiteTextModel}
@@ -158,10 +177,17 @@ class Sam3Detector:
         max_batch: int = 4,
         max_units: int = 4,
         name: str = "sam3",
+        box_source: str = "pred",
+        mask_threshold: float = 0.5,
+        mask_chunk_mib: int = 256,
     ):
+        if box_source not in BOX_SOURCES:
+            raise ValueError(f"box_source {box_source!r}: one of {BOX_SOURCES}")
         self.model_name, self.box_threshold = model_name, box_threshold
         self.max_texts, self.max_batch, self.name = max_texts, max_batch, name
         self.max_units = max_units
+        self.box_source, self.mask_threshold = box_source, mask_threshold
+        self.mask_chunk_mib = mask_chunk_mib
         self.processor = self.model = None
         self.device, self.dtype = "cpu", torch.float32
 
@@ -220,9 +246,7 @@ class Sam3Detector:
                 if isinstance(value, torch.Tensor) and value.is_floating_point():
                     outputs[key] = value.float()
             sizes = [[batch["sizes"][i][1], batch["sizes"][i][0]] for i, _, _ in part]
-            results += self.processor.post_process_instance_segmentation(
-                outputs, threshold=self.box_threshold, mask_threshold=0.5, target_sizes=sizes
-            )
+            results += self.boxes(outputs, sizes)
             del outputs
         for (i, label, _), result in zip(units, results):
             width, height = batch["sizes"][i]
@@ -234,6 +258,103 @@ class Sam3Detector:
                 raws[i]["scores"].append(score)
                 raws[i]["labels"].append(label)
         return raws
+
+    def boxes(self, outputs, sizes: list) -> list[dict]:
+        """Per pass row: the kept instances' ``scores`` and ``boxes`` (crop pixels)."""
+        found = self.processor.post_process_object_detection(
+            outputs, threshold=self.box_threshold, target_sizes=sizes
+        )
+        if self.box_source == "pred":
+            return found
+        # The kept set as post_process_object_detection computes it, for the masks to match
+        scores = outputs.pred_logits.sigmoid()
+        if outputs.presence_logits is not None:
+            scores = scores * outputs.presence_logits.sigmoid()
+        full = self.box_source == "mask_full"
+        for row, (result, size) in enumerate(zip(found, sizes)):
+            keep = scores[row] > self.box_threshold
+            chunk = max(1, (self.mask_chunk_mib << 20) // (size[0] * size[1] * 5))
+            boxes, empty = mask_boxes(
+                outputs.pred_masks[row][keep], size, self.mask_threshold, full, chunk
+            )
+            result["boxes"] = torch.where(empty[:, None], result["boxes"], boxes)
+        return found
+
+    def split(self, out: list, n: int) -> list:
+        return out
+
+    def key(self, payload) -> None:
+        return None
+
+
+class NativeSam3Detector:
+    """GBC's own SAM 3 (``kohakugbc_models.detect.sam3``) behind the same payloads and results as
+    ``Sam3Detector``: the crops' pixels made on the host in ``prepare``; each crop's vision
+    features once, each unique text once (cached), (crop, text) pairs ``max_pairs`` per fusion
+    pass reading their crop's features in place. ``kernels``: the kernel registry's ops;
+    ``fusion_graph`` / ``fusion_buckets``: the fusion pass replayed from CUDA graphs."""
+
+    def __init__(
+        self,
+        model_name: str = "facebook/sam3",
+        box_threshold: float = 0.05,
+        max_texts: int = 16,
+        max_batch: int = 4,
+        name: str = "sam3",
+        box_source: str = "pred",
+        mask_threshold: float = 0.5,
+        max_pairs: int = 16,
+        max_crops: int = 4,
+        text_cache: int = 4096,
+        kernels: bool = True,
+        fusion_graph: bool = True,
+        fusion_buckets: str = "exact",
+        text_graph: bool = True,
+        fp8: str | None = None,
+        fp8_encoder: bool = False,
+        text_device: str | None = None,
+    ):
+        self.model_name, self.box_threshold = model_name, box_threshold
+        self.max_texts, self.max_batch, self.name = max_texts, max_batch, name
+        self.mask_threshold = mask_threshold
+        self.detector = OwnSam3(
+            model_name,
+            box_source=box_source,
+            max_pairs=max_pairs,
+            max_crops=max_crops,
+            text_cache=text_cache,
+            kernels=kernels,
+            fusion_graph=fusion_graph,
+            fusion_buckets=fusion_buckets,
+            text_graph=text_graph,
+            fp8=fp8,
+            fp8_encoder=fp8_encoder,
+            text_device=text_device,
+        )
+        self.device, self.dtype = "cpu", torch.float32
+
+    def load(self, device, dtype) -> None:
+        with LOADING:
+            self.detector.load(device, dtype)
+        self.device, self.dtype = device, dtype
+
+    def to(self, device) -> None:
+        self.detector.to(device)
+        self.device = device
+
+    def example(self) -> list:
+        return [{"patch": np.full((96, 128, 3), 127, np.uint8), "request": {"texts": ["object"]}}]
+
+    def prepare(self, payloads: list) -> dict:
+        pixels = None
+        if any(p["request"]["texts"] for p in payloads):
+            pixels = self.detector.preprocess([p["patch"] for p in payloads])
+        return {"payloads": payloads, "pixels": pixels}
+
+    def forward(self, batch: dict) -> list[dict]:
+        return self.detector.run(
+            batch["payloads"], self.box_threshold, self.mask_threshold, pixels=batch["pixels"]
+        )
 
     def split(self, out: list, n: int) -> list:
         return out
@@ -273,6 +394,47 @@ class SentenceEmbedder:
         features = {k: v.to(self.device) if torch.is_tensor(v) else v for k, v in batch.items()}
         out = self.model(features)["sentence_embedding"]
         return torch.nn.functional.normalize(out.float(), p=2, dim=1).cpu().numpy()
+
+    def split(self, out: np.ndarray, n: int) -> list:
+        return [out[i] for i in range(n)]
+
+    def key(self, payload) -> None:
+        return None
+
+
+class NativeEmbedder:
+    def __init__(
+        self,
+        model_name: str = "google/embeddinggemma-300m",
+        max_batch: int = 64,
+        name: str = "embedder",
+        kernels: bool = True,
+        graphs: bool = True,
+        residual: str = "float32",
+    ):
+        self.model_name, self.max_batch, self.name = model_name, max_batch, name
+        self.model = EmbeddingGemma(
+            model_name, max_batch=max_batch, kernels=kernels, graphs=graphs, residual=residual
+        )
+        self.device, self.dtype = "cpu", torch.float32
+
+    def load(self, device, dtype) -> None:
+        with LOADING:
+            self.model.load(device, dtype)
+        self.device, self.dtype = device, dtype
+
+    def to(self, device) -> None:
+        self.model.to(device)
+        self.device = device
+
+    def example(self) -> list:
+        return ["red dress"]
+
+    def prepare(self, payloads: list) -> tuple:
+        return self.model.pack(self.model.tokenize(list(payloads)))
+
+    def forward(self, batch: tuple) -> np.ndarray:
+        return self.model.run(batch).cpu().numpy()
 
     def split(self, out: np.ndarray, n: int) -> list:
         return [out[i] for i in range(n)]

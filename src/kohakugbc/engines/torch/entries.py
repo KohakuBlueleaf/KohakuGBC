@@ -9,16 +9,41 @@ former's wait), ``memory_gb`` (the plan's estimate per device), ``engine``
 (``schedule``, ``isolation``, ``slots``, ``memory_cap_gb``, ``prep_workers``; slots whose models
 share devices, dtype and these settings share one engine). Detector: ``model`` names OWLv2
 (``google/owlv2-base-patch16-ensemble``, the PoC's) or SAM 3 (``facebook/sam3``, or a
-SAM3-LiteText checkpoint ``vil-uob/sam3-litetext-*``; ``max_units``: (crop, text) pairs per
-decoder pass, 4); ``box_threshold`` (0.05), ``max_texts`` (16).
+SAM3-LiteText checkpoint ``vil-uob/sam3-litetext-*``; ``box_source``: ``pred``, ``mask`` or
+``mask_full``, ``mask_threshold`` 0.5); ``box_threshold`` (0.05), ``max_texts`` (16). SAM 3's
+``impl``: ``auto`` (GBC's own model for ``sam3`` / ``sam3_video`` checkpoints, transformers'
+otherwise), ``native`` (``max_pairs`` 16 pairs per fusion pass, ``max_crops`` 4 crops per vision
+pass, ``text_cache`` 4096, ``kernels`` true, ``fusion_graph`` true, ``fusion_buckets`` ``exact``,
+``text_graph`` true, ``fp8`` (``row`` / ``mx``: the ViT's linears in fp8; none by default),
+``fp8_encoder`` (the DETR encoder's MLPs too), ``text_device`` (``cpu``: the text encoder on the
+host), ``budget_gb`` (caps fitted from the card's measured memory plan);
+dtype ``auto``: bfloat16 on sm80+, float16 before) or ``transformers`` (``max_units`` 4 pairs per
+decoder pass). Embedder's ``impl``: ``auto`` (GBC's own EmbeddingGemma for ``gemma3_text``
+checkpoints, sentence-transformers otherwise), ``native`` (``kernels`` true, ``graphs`` true,
+``residual`` ``float32``; dtype float32) or ``st``.
 """
 
 from togeari.engines.torch import TorchAdapter, TorchEngine
 from togeari.policies import SizeOrWait
+from transformers import AutoConfig
 
 from kohakugbc.engines import placement
 from kohakugbc.engines.registry import Slot, entry
-from kohakugbc.engines.torch.modules import Owlv2Detector, Sam3Detector, SentenceEmbedder
+from kohakugbc.engines.torch.modules import (
+    NativeEmbedder,
+    NativeSam3Detector,
+    Owlv2Detector,
+    Sam3Detector,
+    SentenceEmbedder,
+)
+from kohakugbc_models.detect.sam3 import memory
+
+# Checkpoint model types GBC's own models load (``impl: auto`` picks them for these)
+NATIVE_SAM3 = ("sam3", "sam3_video")
+# GBC's own SAM 3 with no measured plan: 5090 bf16, 16 pairs per pass, exact graphs,
+# 3.4 GiB allocated / 4.8 reserved
+DEFAULT_SAM3_GB = 5.0
+NATIVE_GEMMA = ("gemma3_text",)
 
 # The plan's default estimates (weights and peak activations per device), by model
 ESTIMATE_GB = {
@@ -67,6 +92,48 @@ def model_name(model) -> str:
     return getattr(model, "model_name", "")
 
 
+def native_sam3(name: str, settings: dict, shared: dict, common: dict) -> Slot:
+    """GBC's own SAM 3, its caps and the plan's estimate from the card's memory plan
+    (``detect.sam3.memory``) when one was measured: ``budget_gb`` fits ``max_pairs`` /
+    ``max_crops`` within it; ``memory_gb`` defaults to the plan's estimate at the caps (+10%),
+    else ``DEFAULT_SAM3_GB``."""
+    placements = placement.devices(settings.get("devices", "auto"))
+    first = placement.flat(placements)[0]
+    dtype = placement.dtype(settings.get("dtype", "auto"), placements[0])
+    box_source = settings.get("box_source", "pred")
+    fp8 = settings.get("fp8")
+    text_device = settings.get("text_device")
+    crops, pairs = int(settings.get("max_crops", 4)), int(settings.get("max_pairs", 16))
+    plan = memory.load(first, memory.plan_name(dtype, fp8, text_device, box_source))
+    if plan is not None and settings.get("budget_gb") is not None:
+        fitted = plan.fit(int(float(settings["budget_gb"]) * placement.GIB), crops, pairs)
+        if fitted is None:
+            raise ValueError(f"SAM 3 does not fit {settings['budget_gb']} GiB on {first}")
+        crops, pairs = fitted
+    model = NativeSam3Detector(
+        name,
+        max_batch=int(settings.get("max_batch", 4)),
+        box_source=box_source,
+        mask_threshold=float(settings.get("mask_threshold", 0.5)),
+        max_pairs=pairs,
+        max_crops=crops,
+        text_cache=int(settings.get("text_cache", 4096)),
+        kernels=bool(settings.get("kernels", True)),
+        fusion_graph=bool(settings.get("fusion_graph", True)),
+        fusion_buckets=settings.get("fusion_buckets", "exact"),
+        text_graph=bool(settings.get("text_graph", True)),
+        fp8=fp8,
+        fp8_encoder=bool(settings.get("fp8_encoder", False)),
+        text_device=text_device,
+        **common,
+    )
+    estimate = DEFAULT_SAM3_GB
+    if plan is not None:
+        estimate = plan.estimate(crops, pairs) * 1.1 / placement.GIB
+    settings = {"memory_gb": estimate, **settings, "dtype": dtype}
+    return _slot("detector", model, settings, shared, dtype, None)
+
+
 @entry("detect", "torch")
 def detector(settings: dict, shared: dict) -> Slot:
     name = settings.get("model", "google/owlv2-base-patch16-ensemble")
@@ -76,8 +143,20 @@ def detector(settings: dict, shared: dict) -> Slot:
         "name": "detector",
     }
     if "sam3" in name.lower():
-        model = Sam3Detector(name, max_batch=int(settings.get("max_batch", 4)),
-                             max_units=int(settings.get("max_units", 4)), **common)  # fmt: skip
+        impl = settings.get("impl", "auto")
+        if impl == "auto":
+            native = AutoConfig.from_pretrained(name).model_type in NATIVE_SAM3
+            impl = "native" if native else "transformers"
+        if impl == "native":
+            return native_sam3(name, settings, shared, common)
+        model = Sam3Detector(
+            name,
+            max_batch=int(settings.get("max_batch", 4)),
+            max_units=int(settings.get("max_units", 4)),
+            box_source=settings.get("box_source", "pred"),
+            mask_threshold=float(settings.get("mask_threshold", 0.5)),
+            **common,
+        )
     else:
         model = Owlv2Detector(name, max_batch=int(settings.get("max_batch", 8)), **common)
     return _slot("detector", model, settings, shared, "float32", None)
@@ -85,9 +164,22 @@ def detector(settings: dict, shared: dict) -> Slot:
 
 @entry("embed", "torch")
 def embedder(settings: dict, shared: dict) -> Slot:
-    model = SentenceEmbedder(
-        settings.get("model", "google/embeddinggemma-300m"),
-        max_batch=int(settings.get("max_batch", 64)),
-        name="embedder",
-    )
+    name = settings.get("model", "google/embeddinggemma-300m")
+    impl = settings.get("impl", "auto")
+    if impl == "auto":
+        impl = "native" if AutoConfig.from_pretrained(name).model_type in NATIVE_GEMMA else "st"
+    if impl == "native":
+        model = NativeEmbedder(
+            name,
+            max_batch=int(settings.get("max_batch", 64)),
+            name="embedder",
+            kernels=bool(settings.get("kernels", True)),
+            graphs=bool(settings.get("graphs", True)),
+            residual=settings.get("residual", "float32"),
+        )
+        # float32 keeps the PoC's vectors (5090: 1 - cos <= 1e-7, 1.9-8.3x the
+        # sentence-transformers fp32 throughput); bfloat16 is 1.8-1.2x faster again, with a
+        # 1 - cos tail to 2e-3 on short names
+        return _slot("embedder", model, settings, shared, "float32", "text")
+    model = SentenceEmbedder(name, max_batch=int(settings.get("max_batch", 64)), name="embedder")
     return _slot("embedder", model, settings, shared, "float32", "text")
