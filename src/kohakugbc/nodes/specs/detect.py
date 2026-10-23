@@ -53,13 +53,19 @@ def select(
     single: bool,
     max_rel_area: float | None,
     topk: int,
+    score: float = SCORE_THRESHOLD,
+    nms_iou: float = NMS_MULTIPLE,
+    nms_iou_single: float = NMS_SINGLE,
+    drop_containers: bool = True,
 ) -> list[list]:
-    """The boxes one text keeps, relative to the crop, as ``[l, t, r, b, confidence]``."""
+    """The boxes one text keeps, relative to the crop, as ``[l, t, r, b, confidence]``: scores
+    above ``score``, NMS at ``nms_iou`` (``nms_iou_single`` for a single object), a box that
+    contains another dropped (``drop_containers``); the PoC's selection by default."""
     boxes = np.asarray(raw_boxes, dtype=np.float32).reshape(-1, 4)
     scores = np.asarray(raw_scores, dtype=np.float32)
 
     # Score, then area thresholds (float32 against float32 thresholds, as torch compares)
-    keep = scores > np.float32(SCORE_THRESHOLD)
+    keep = scores > np.float32(score)
     boxes, scores = boxes[keep], scores[keep]
     area = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
     keep = area > np.float32(MIN_ABS_AREA)
@@ -69,7 +75,7 @@ def select(
         keep = rel < np.float32(max_rel_area)
         boxes, scores = boxes[keep], scores[keep]
 
-    order = nms(boxes, scores, NMS_SINGLE if single else NMS_MULTIPLE)
+    order = nms(boxes, scores, nms_iou_single if single else nms_iou)
     kept = [
         [
             float(boxes[i, 0]) / width,
@@ -82,11 +88,12 @@ def select(
     ]
 
     # Drop boxes that contain another box (remove_inside=False)
-    kept = [
-        b
-        for k, b in enumerate(kept)
-        if not any(bx.inside(o, b) for m, o in enumerate(kept) if m != k)
-    ]
+    if drop_containers:
+        kept = [
+            b
+            for k, b in enumerate(kept)
+            if not any(bx.inside(o, b) for m, o in enumerate(kept) if m != k)
+        ]
 
     # A single object keeps the boxes close to the best score
     if single and kept:
@@ -120,6 +127,10 @@ def children(raw: dict, size: list, request: dict, entities: list, parent_box, c
             entity_label == "single",
             max_rel_area,
             controls["max_instances_per_text"],
+            controls["box_score"],
+            controls["nms_iou"],
+            controls["nms_iou_single"],
+            controls["drop_containers"],
         )
         if kept:
             found[text] = kept

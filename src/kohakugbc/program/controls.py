@@ -22,6 +22,13 @@ DEFAULTS = {
     "max_features_per_entity": 4,
     "max_instances_per_text": 6,
     "max_depth": 3,
+    # Detection selection, the PoC's (tuned for OWLv2, whose near-duplicate boxes need a tight
+    # NMS): kept above box_score, NMS at nms_iou (nms_iou_single for a single object), a box
+    # containing another dropped
+    "box_score": 0.1,
+    "nms_iou": 0.2,
+    "nms_iou_single": 0.05,
+    "drop_containers": True,
     # Regions per VLM request; leaves captioned by the parent's reply
     "entity_batch": 1,
     "leaf_caption": "query",
