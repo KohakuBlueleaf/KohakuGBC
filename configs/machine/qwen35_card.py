@@ -1,0 +1,121 @@
+# The whole GBC machine on one card: Qwen3.5 through vLLM's engine, in this process (the
+# in-process ``vllm`` entry) or behind a `vllm serve` on the same card (GBC_VLM_URL, the ``api``
+# entry; scripts/bench/machine/serve.py starts that server with the same engine arguments), and
+# GBC's own SAM 3 and EmbeddingGemma on the same card.
+# One machine per card: GBC_CARD picks it, so N processes cover an N-card box.
+# Measured best (480 images, mid + sam3 controls):
+#   RTX 5090: FP8-GDN checkpoint, GBC_VLM_UTIL=0.75, GBC_VLM_LANES=384, GBC_DETECT_BATCH=8,
+#     PhasedScheduler with KOHAKU_PREFILL_EVERY=16: 1.50-1.55 img/s, GPU 96% busy at its power cap.
+#   RTX 3090: SmoothQuant INT8 checkpoint, GBC_VLM_UTIL=0.72, GBC_VLM_LANES=128, GBC_DETECT_BATCH=8,
+#     GBC_DETECT_FP8=none, same scheduler: 0.41 img/s, bound by KV-cache capacity.
+# GBC_VLM_MODEL: a W8A8 checkpoint with dynamic per-token activations. FP8 on sm89 and up
+#   (RedHatAI/Qwen3.5-4B-FP8-dynamic, or with the GDN projections in FP8 too: +19% requests/s);
+#   INT8 below (KohakuvLLM tools/quantize.py and tools/smooth.py; 1.9x the FP8 checkpoint's
+#   requests/s on a 3090, where FP8 runs weight-only).
+# GBC_VLM_STATE: the GDN recurrent state dtype, bfloat16 (+27% requests/s over float32).
+# GBC_VLM_UTIL: vLLM's share of the card; SAM 3 and EmbeddingGemma take about 5 GiB beside it.
+#   GBC's prompts are long (images), so the share and GBC_VLM_KV (auto or fp8) set how many
+#   requests the engine holds. GBC_VLM_LANES must not exceed its Mamba cache blocks.
+# GBC_VLM_PREFIX: prefix caching (1: worth about 23%). With it, vLLM's Mamba "align" mode cuts
+#   prefill chunks at attention-block boundaries, and fp8 KV (544-token blocks) runs only a few
+#   requests at once.
+# GBC_DETECT_GB: SAM 3's placement reservation (fp8 row, batch 8 peaks at about 2.5 GB).
+# GBC_DETECT_FP8: SAM 3's ViT linears in fp8, row (sm89 and up) or none.
+# GBC_VLM_SCHEDULER: a vLLM scheduler class path, e.g. kohakuvllm.sched.phased.PhasedScheduler
+#   (decode-only steps between prefills, KOHAKU_PREFILL_EVERY; vLLM's own by default).
+# GBC_VLM_ATTN: vLLM's attention backend (FLASH_ATTN, FLASHINFER, TRITON_ATTN; vLLM's pick if
+#   unset; fp8 KV on sm120 rules out FLASH_ATTN).
+# GBC_VLM_STEP_TOKENS: vLLM's token budget per step (8192).
+# GBC_VLM_GRAPH_MAX: the largest step (tokens) vLLM captures a CUDA graph for (vLLM's default if
+#   unset).
+# GBC_STRUCTURED: prompt (default; in-process, 1 reply in 400 asked again; over HTTP, no retry)
+#   or grammar; GBC_VLM_GRAMMAR picks vLLM's grammar backend under grammar (auto, xgrammar,
+#   guidance, outlines).
+# GBC_VLM_URL: a `vllm serve` base URL (http://127.0.0.1:PORT/v1); unset: in-process.
+# GBC_VLM_STATS=1: vLLM's stats line every 5 s.
+#   GBC_IMAGES=path/to/images gbc run configs/machine/qwen35_card.py configs/controls/mid.py
+
+import os
+
+_CARD = int(os.environ.get("GBC_CARD", "0"))
+_OUT = os.environ.get("GBC_OUT", f"runs/machine/qwen35_card{_CARD}")
+_LANES = int(os.environ.get("GBC_VLM_LANES", "256"))
+_EVENTS = os.environ.get("GBC_EVENTS", "sampled")
+_DETECT_FP8 = os.environ.get("GBC_DETECT_FP8", "row")
+_SCHEDULER = os.environ.get("GBC_VLM_SCHEDULER", "")
+_GRAPH_MAX = int(os.environ.get("GBC_VLM_GRAPH_MAX", "0"))
+_ATTN = os.environ.get("GBC_VLM_ATTN", "")
+_STATS = os.environ.get("GBC_VLM_STATS", "0") == "1"
+
+_URL = os.environ.get("GBC_VLM_URL", "")
+_STRUCTURED = os.environ.get("GBC_STRUCTURED", "prompt")
+
+# vLLM's engine, in-process or behind `vllm serve` (scripts/bench/machine/serve.py reads _VLLM)
+_VLLM = {
+    "model": os.environ.get("GBC_VLM_MODEL", "RedHatAI/Qwen3.5-4B-FP8-dynamic"),
+    "served_model_name": "gbc-vlm",
+    "gpu_memory_utilization": float(os.environ.get("GBC_VLM_UTIL", "0.55")),
+    "max_model_len": 8192,
+    "max_num_seqs": _LANES,
+    "mamba_ssm_cache_dtype": os.environ.get("GBC_VLM_STATE", "bfloat16"),
+    "kv_cache_dtype": os.environ.get("GBC_VLM_KV", "auto"),
+    "max_num_batched_tokens": int(os.environ.get("GBC_VLM_STEP_TOKENS", "8192")),
+    "enable_prefix_caching": os.environ.get("GBC_VLM_PREFIX", "1") == "1",
+    "limit_mm_per_prompt": {"image": 4, "video": 0},
+    "compilation_config": {
+        "compile_mm_encoder": True,
+        "cudagraph_mm_encoder": True,
+        **({"max_cudagraph_capture_size": _GRAPH_MAX} if _GRAPH_MAX else {}),
+    },
+    **({"scheduler_cls": _SCHEDULER} if _SCHEDULER else {}),
+    **({"attention_backend": _ATTN} if _ATTN else {}),
+    "structured_outputs_config": {"backend": os.environ.get("GBC_VLM_GRAMMAR", "auto")},
+    "disable_log_stats": not _STATS,
+}
+_TOP = ("gpu_memory_utilization", "max_model_len", "max_num_seqs")
+_INPROCESS = {
+    "entry": "vllm",
+    "model": _VLLM["model"],
+    "devices": [_CARD],
+    "capacity": _LANES,
+    "structured": _STRUCTURED,
+    "stats_s": 5.0 if _STATS else 0.0,
+    **{k: _VLLM[k] for k in _TOP},
+    "engine_args": {
+        k: v for k, v in _VLLM.items() if k not in (*_TOP, "model", "served_model_name")
+    },
+}
+_HTTP = {
+    "entry": "api",
+    "flavour": "vllm",
+    "model": _VLLM["served_model_name"],
+    "structured": _STRUCTURED,
+    "metrics": "vllm",
+    "endpoints": [{"base_url": _URL, "max_inflight": _LANES}],
+}
+
+engines = {
+    "vlm": _HTTP if _URL else _INPROCESS,
+    "detect": {
+        "entry": "torch",
+        "model": os.environ.get("GBC_DETECT_MODEL", "facebook/sam3"),
+        "dtype": "bfloat16",
+        "fp8": None if _DETECT_FP8 == "none" else _DETECT_FP8,
+        "fusion_buckets": "pow2",
+        "devices": [f"cuda:{_CARD}"],
+        "max_batch": int(os.environ.get("GBC_DETECT_BATCH", "4")),
+        "wait_ms": 5.0,
+        "memory_gb": float(os.environ.get("GBC_DETECT_GB", "3.5")),
+    },
+    "embed": {
+        "entry": "torch",
+        "model": os.environ.get("GBC_EMBED_MODEL", "google/embeddinggemma-300m"),
+        "devices": [f"cuda:{_CARD}"],
+        "max_batch": 64,
+        "memory_gb": 1.4,
+    },
+    "cpu": {"entry": "python", "workers": 8},
+}
+machine = {"vlm_waiting": _LANES, "report": f"{_OUT}/report", "knobs": {"events": _EVENTS}}
+source = {"kind": "folder", "path": os.environ.get("GBC_IMAGES", "images")}
+sink = {"kind": "graphs", "path": f"{_OUT}/graphs.jsonl"}
