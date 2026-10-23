@@ -48,6 +48,7 @@ torch = [
     "torchvision>=0.19",
     "transformers>=5.20",
     "sentence-transformers>=6.1",
+    "inflect>=7",
 ]
 # The in-process VLM (Linux)
 vllm = ["vllm>=0.11"]

@@ -35,6 +35,7 @@ Payload the text; result the vector (float32).
 from CUDA graphs.
 """
 
+import inflect
 import numpy as np
 import torch
 from PIL import Image
@@ -55,6 +56,40 @@ from kohakugbc_models.embed.gemma import EmbeddingGemma
 
 # By the checkpoint's model_type (facebook/sam3 is the video config; its image model is Sam3Model)
 SAM3_MODELS = {"sam3": Sam3Model, "sam3_video": Sam3Model, "sam3_lite_text": Sam3LiteTextModel}
+INFLECT = inflect.engine()
+
+
+def singular_phrase(text: str) -> str | None:
+    """The phrase with its last word singular ("devil girls" -> "devil girl"); None when it is
+    singular already."""
+    words = text.split()
+    one = INFLECT.singular_noun(words[-1]) if words else False
+    return " ".join([*words[:-1], one]) if one and one != words[-1] else None
+
+
+def retry_singular(raws: list[dict], payloads: list, answer) -> list[dict]:
+    """Texts no box answered, asked again in their singular form (SAM 3 answers nothing for some
+    plural phrases: "devil girls" none, "devil girl" 0.75); the boxes found join the text's own
+    label. ``answer``: payloads to raw outputs."""
+    again, where = [], []
+    for i, (payload, raw) in enumerate(zip(payloads, raws)):
+        found = set(raw["labels"])
+        texts, labels = [], []
+        for k, text in enumerate(payload["request"]["texts"]):
+            one = singular_phrase(text)
+            if k not in found and one is not None:
+                texts.append(one)
+                labels.append(k)
+        if texts:
+            again.append({**payload, "request": {**payload["request"], "texts": texts}})
+            where.append((i, labels))
+    if not again:
+        return raws
+    for (i, labels), raw in zip(where, answer(again)):
+        raws[i]["boxes"] = list(raws[i]["boxes"]) + list(raw["boxes"])
+        raws[i]["scores"] = list(raws[i]["scores"]) + list(raw["scores"])
+        raws[i]["labels"] = list(raws[i]["labels"]) + [labels[k] for k in raw["labels"]]
+    return raws
 
 
 class Owlv2Detector:
@@ -180,9 +215,11 @@ class Sam3Detector:
         box_source: str = "pred",
         mask_threshold: float = 0.5,
         mask_chunk_mib: int = 256,
+        retry_singular: bool = True,
     ):
         if box_source not in BOX_SOURCES:
             raise ValueError(f"box_source {box_source!r}: one of {BOX_SOURCES}")
+        self.retry_singular = retry_singular
         self.model_name, self.box_threshold = model_name, box_threshold
         self.max_texts, self.max_batch, self.name = max_texts, max_batch, name
         self.max_units = max_units
@@ -216,6 +253,7 @@ class Sam3Detector:
             pixels = self.processor(images=images, return_tensors="pt")
             text = self.processor(text=[t for _, _, t in units], return_tensors="pt")
         return {
+            "payloads": payloads,
             "units": units,
             "pixels": pixels,
             "text": text,
@@ -224,6 +262,12 @@ class Sam3Detector:
         }
 
     def forward(self, batch: dict) -> list[dict]:
+        raws = self.answer(batch)
+        if self.retry_singular:
+            raws = retry_singular(raws, batch["payloads"], lambda p: self.answer(self.prepare(p)))
+        return raws
+
+    def answer(self, batch: dict) -> list[dict]:
         raws = [{"boxes": [], "scores": [], "labels": []} for _ in batch["texts"]]
         units = batch["units"]
         if not units:
@@ -314,10 +358,11 @@ class NativeSam3Detector:
         fp8_encoder: bool = False,
         text_device: str | None = None,
         capture: str = "load",
+        retry_singular: bool = True,
     ):
         self.model_name, self.box_threshold = model_name, box_threshold
         self.max_texts, self.max_batch, self.name = max_texts, max_batch, name
-        self.mask_threshold = mask_threshold
+        self.mask_threshold, self.retry_singular = mask_threshold, retry_singular
         self.detector = OwnSam3(
             model_name,
             box_source=box_source,
@@ -355,9 +400,16 @@ class NativeSam3Detector:
         return {"payloads": payloads, "pixels": pixels}
 
     def forward(self, batch: dict) -> list[dict]:
-        return self.detector.run(
+        raws = self.detector.run(
             batch["payloads"], self.box_threshold, self.mask_threshold, pixels=batch["pixels"]
         )
+        if self.retry_singular:
+            raws = retry_singular(
+                raws,
+                batch["payloads"],
+                lambda p: self.detector.run(p, self.box_threshold, self.mask_threshold),
+            )
+        return raws
 
     def split(self, out: list, n: int) -> list:
         return out

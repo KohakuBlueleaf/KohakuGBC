@@ -10,7 +10,8 @@ former's wait), ``memory_gb`` (the plan's estimate per device), ``engine``
 share devices, dtype and these settings share one engine). Detector: ``model`` names OWLv2
 (``google/owlv2-base-patch16-ensemble``, the PoC's) or SAM 3 (``facebook/sam3``, or a
 SAM3-LiteText checkpoint ``vil-uob/sam3-litetext-*``; ``box_source``: ``pred``, ``mask`` or
-``mask_full``, ``mask_threshold`` 0.5); ``box_threshold`` (0.05), ``max_texts`` (16). SAM 3's
+``mask_full``, ``mask_threshold`` 0.5, ``retry_singular`` true: a text no box answers is asked
+again in its singular form); ``box_threshold`` (0.05), ``max_texts`` (16). SAM 3's
 ``impl``: ``auto`` (GBC's own model for ``sam3`` / ``sam3_video`` checkpoints, transformers'
 otherwise), ``native`` (``max_pairs`` 16 pairs per fusion pass, ``max_crops`` 4 crops per vision
 pass, ``text_cache`` 4096, ``kernels`` true, ``fusion_graph`` true, ``fusion_buckets`` ``exact``,
@@ -128,6 +129,7 @@ def native_sam3(name: str, settings: dict, shared: dict, common: dict) -> Slot:
         fp8_encoder=bool(settings.get("fp8_encoder", False)),
         text_device=text_device,
         capture=settings.get("capture", "load"),
+        retry_singular=bool(settings.get("retry_singular", True)),
         **common,
     )
     estimate = DEFAULT_SAM3_GB
@@ -158,6 +160,7 @@ def detector(settings: dict, shared: dict) -> Slot:
             max_units=int(settings.get("max_units", 4)),
             box_source=settings.get("box_source", "pred"),
             mask_threshold=float(settings.get("mask_threshold", 0.5)),
+            retry_singular=bool(settings.get("retry_singular", True)),
             **common,
         )
     else:

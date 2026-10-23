@@ -62,6 +62,7 @@ EXTRAS = {
         "torch",
         "transformers",
         "sentence_transformers",
+        "inflect",
         "vllm",
     ),
     "kohakugbc.io": ("PIL", "numpy", "pyarrow"),

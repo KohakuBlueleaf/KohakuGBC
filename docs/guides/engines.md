@@ -128,6 +128,8 @@ text encoder replayed from CUDA graphs. 2.3x transformers' model through the eng
 | `text_device` | `"cpu"`: the text encoder in float32 on the host (0.66 GiB less on the device; the cache serves repeated texts) |
 | `text_cache` | texts whose features are kept (4096, least recently used dropped) |
 | `budget_gb` | fit `max_pairs` / `max_crops` within this many GiB from the card's measured memory plan (`scripts/bench/detector/memory.py`); `memory_gb` defaults to the plan's estimate |
+| `capture` | `load` (default): every fusion pass size and text count captured into CUDA graphs when the model loads, other shapes run uncaptured; `lazy`: each captured on its first call. On one card beside other models, `load` with `fusion_buckets: pow2` keeps 2.7 GiB reserved where `exact` takes 5.4 |
+| `retry_singular` | a text no box answers is asked again with its last word singular, its boxes kept under the text (true; SAM 3 answers nothing for some plural phrases: "devil girls" none, "devil girl" 0.75); for transformers' SAM 3 too |
 
 Kernels tune on first use per problem and store their choice under `KOHAKUGBC_KERNEL_CACHE`
 (default `~/.cache/kohakugbc_kernels`); the memory plans live there too. Setting
@@ -142,7 +144,8 @@ sentence-transformers): a batch's texts packed into one token stream (no padding
 variable-length bidirectional attention kernel, the pass replayed from one CUDA graph per stream
 bucket. float32 by default (equal to sentence-transformers' vectors, 1 - cos <= 1e-7);
 `residual` (float32) keeps the residual stream in fp32 when `dtype` is 16-bit. 1.9-8.3x
-sentence-transformers' throughput on a 5090 in float32.
+sentence-transformers' throughput on a 5090 in float32. `capture` (`load`) captures every stream
+bucket up to `graph_tokens` (4096) at load; longer streams run uncaptured.
 
 OWLv2's default is float32 because its results then do not depend on its batch: in
 float16 a batched crop's scores move by up to 0.085 from the crop alone, in float32 by at most
