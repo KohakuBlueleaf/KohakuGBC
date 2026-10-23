@@ -66,9 +66,11 @@ dev = [
 gbc = "kohakugbc.cli.main:main"
 
 [tool.maturin]
-# Python source is in src/kohakugbc; the crate is src/kohakugbc-rust (Cargo.toml)
+# Python source is in src/kohakugbc; the crate is src/kohakugbc-rust (Cargo.toml). The models GBC
+# runs itself, their kernels and the numerics are one standalone package beside it.
 python-source = "src"
 module-name = "kohakugbc._rs"
+python-packages = ["kohakugbc_models"]
 include = ["src/kohakugbc/**/*.kir", "src/kohakugbc/**/*.json", "src/kohakugbc/**/*.txt"]
 
 [tool.black]
