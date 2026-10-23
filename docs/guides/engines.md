@@ -30,7 +30,7 @@ engines = {
 | `protocol` | `"openai"` (`/chat/completions`) or `"anthropic"` (`/messages`) |
 | `flavour` | where an OpenAI-compatible server takes the JSON schema and how it turns Qwen3.5's thinking off: `vllm`, `sglang`, `llama.cpp`, `openai`, `openrouter` |
 | `model`, `sampling` | the model name; extra body fields (`top_p`, `min_p`, ...) |
-| `structured` | `grammar` (default): the request's JSON schema goes to the server; `prompt`: the prompt alone asks for the JSON |
+| `structured` | `grammar` (default): the request's JSON schema goes to the server; `kohaku`: it goes as `vllm_xargs` to KohakuvLLM's grammar logits processor on a vLLM server (served with `--logits-processors kohakuvllm.grammar:JsonSchemaLogits`); `prompt`: the prompt alone asks for the JSON |
 | `endpoints` | per unit: `base_url`, `max_inflight` (32), `rate` (requests per second, or `[rate, burst]`), `api_key_env`, `headers`, `name` |
 | `timeout_s`, `connect_timeout_s`, `health_path` | per request; per connection (past it the unit is down); the GET that brings a down unit back |
 | `metrics` | `"vllm"`: the server's running and waiting counts in the unit's load report |
@@ -62,9 +62,10 @@ engines = {
 | `units`, `devices` | units, and per unit the CUDA devices it uses (several: tensor parallel over them) |
 | `gpu_memory_utilization`, `max_model_len`, `max_num_seqs`, `dtype` | vLLM's own (0.5, 16384, 64, `bfloat16`) |
 | `capacity` | requests in flight per unit (twice `max_num_seqs`) |
-| `structured`, `retries` | `prompt` (default): the prompts describe the JSON, and a reply GBC's reader cannot read as the schema's object is asked again up to `retries` (1) times; `grammar`: vLLM constrains decoding to the schema |
+| `structured`, `retries` | `prompt` (default): the prompts describe the JSON, and a reply GBC's reader cannot read as the schema's object is asked again up to `retries` (1) times; `grammar`: vLLM's structured outputs constrain decoding to the schema; `kohaku`: KohakuvLLM's grammar logits processor does (the entry adds it to the engine's `logits_processors`) |
 | `engine_args`, `sampling` | any other `AsyncEngineArgs` field; extra `SamplingParams` fields |
 | `stats_s` | vLLM's stats line every that many seconds (0: off) |
+| `frontend`, `frontend_args`, `frontend_gb` | `vllm` (default): vLLM's own input processing and image encoder; `kohakuvllm`: KohakuvLLM's frontend, requests prepared in worker processes (`workers`) and images encoded by its vision tower in this process (`vision_fp8`, `max_patches`), handed to the engine as token ids and image embeddings; the tower's reservation in GiB (1.5) |
 
 The unit builds the prompt with the model's chat template (thinking off) and sends the pictures
 as the API path decodes them; a cancelled request is aborted in vLLM. vLLM sizes its KV cache
