@@ -31,7 +31,7 @@ from pathlib import Path
 import torch
 
 from kohakugbc_models.kernels.errors import ConfigsFailed, is_backend_failure
-from kohakugbc_models.kernels.hardware import cache_dir, card_key, synchronize
+from kohakugbc_models.kernels.hardware import QUIET, cache_dir, card_key, synchronize
 
 WORKING_FACTOR = 8.0
 WORKING_FLOOR = 256 << 20
@@ -121,7 +121,7 @@ def graph_ms(fn: Callable[[], object], device, calls: int) -> float:
         fn()
     synchronize(device)
     graph = torch.cuda.CUDAGraph()
-    with torch.cuda.graph(graph):
+    with torch.cuda.graph(graph, capture_error_mode="thread_local"):
         for _ in range(calls):
             fn()
     best = float("inf")
@@ -137,10 +137,12 @@ def graph_ms(fn: Callable[[], object], device, calls: int) -> float:
 
 
 def best_ms(fn: Callable[[], object], device, repeat: int) -> float:
-    """The current metric's ms per call over ``repeat`` calls."""
-    if current_metric() == "graph" and torch.device(device).type == "cuda":
-        return graph_ms(fn, device, repeat)
-    return loop_ms(fn, device, repeat)
+    """The current metric's ms per call over ``repeat`` calls, alone among the process's
+    captures (``QUIET``)."""
+    with QUIET:
+        if current_metric() == "graph" and torch.device(device).type == "cuda":
+            return graph_ms(fn, device, repeat)
+        return loop_ms(fn, device, repeat)
 
 
 def working_bytes(fn: Callable[[], object], device) -> int:

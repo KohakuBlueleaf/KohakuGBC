@@ -143,7 +143,9 @@ def bucket(total: int) -> int:
 class EmbeddingGemma:
     """Texts to normalized fp32 vectors. ``kernels``: the kernel registry's varlen attention and
     segment mean (else the eager references); ``graphs``: CUDA-graph replay per stream bucket;
-    ``residual``: ``float32`` or ``model`` (the module docstring)."""
+    ``residual``: ``float32`` or ``model`` (the module docstring). ``capture``: ``load``
+    captures every bucket up to ``graph_tokens`` when placed on a CUDA device and runs longer
+    streams uncaptured; ``lazy`` captures each bucket on its first call."""
 
     def __init__(
         self,
@@ -153,11 +155,16 @@ class EmbeddingGemma:
         kernels: bool = True,
         graphs: bool = True,
         residual: str = "float32",
+        capture: str = "load",
+        graph_tokens: int = 4096,
     ):
         if residual not in ("float32", "model"):
             raise ValueError(f"residual {residual!r}: float32 or model")
+        if capture not in ("load", "lazy"):
+            raise ValueError(f"capture {capture!r}: load or lazy")
         self.model_name, self.max_batch, self.max_tokens = model, max_batch, max_tokens
         self.kernels, self.use_graphs, self.residual = kernels, graphs, residual
+        self.capture, self.graph_tokens = capture, graph_tokens
         self.encoder = self.tokenizer = self.graphs = self.cfg = None
         self.dense: list[torch.Tensor] = []
         self.tables: dict[str, tuple] = {}
@@ -213,6 +220,23 @@ class EmbeddingGemma:
         self.graphs = None
         if self.use_graphs and torch.device(device).type == "cuda":
             self.graphs = Graphs(self.forward, clone=(0,))
+            if self.capture == "load":
+                self.capture_all()
+
+    def capture_all(self) -> None:
+        """Every stream bucket up to ``graph_tokens`` captured, then the graphs frozen."""
+        ids = self.tokenize(["object"])[0]
+        size = MIN_TOKENS
+        with torch.inference_mode():
+            while size <= self.graph_tokens:
+                # Texts of at most max_tokens filling the bucket past its half
+                text = ids * (min(self.max_tokens, size) // len(ids))
+                count = min(self.max_batch, size // len(text))
+                packed = self.pack([text] * count)
+                inputs = tuple(t.to(self.device) for t in packed)
+                self.graphs.warm(inputs[0].shape[0], *inputs)
+                size *= 2
+        self.graphs.freeze()
 
     def tokenize(self, texts: list[str]) -> list[list[int]]:
         """Token ids per text (host), as sentence-transformers tokenizes (special tokens,

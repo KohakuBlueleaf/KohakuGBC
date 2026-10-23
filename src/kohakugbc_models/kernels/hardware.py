@@ -3,10 +3,14 @@
 
 import os
 import re
+import threading
 from functools import cache
 from pathlib import Path
 
 import torch
+
+# A host sync in another thread invalidates a CUDA graph capture; re-entrant (a warm-up tunes)
+QUIET = threading.RLock()
 
 
 def arch_of(device) -> str:
@@ -41,8 +45,10 @@ def cache_dir() -> Path:
 
 
 def synchronize(device) -> None:
+    """A host synchronization, never during another thread's CUDA graph capture (``QUIET``)."""
     device = torch.device(device)
     if device.type == "cuda":
-        torch.cuda.synchronize(device)
+        with QUIET:
+            torch.cuda.synchronize(device)
     elif device.type == "xpu":
         torch.xpu.synchronize(device)

@@ -20,6 +20,7 @@ logits, the presence logit, the boxes (xyxy, 0..1) and, for the mask sources, th
 from collections import OrderedDict
 from pathlib import Path
 
+import numpy as np
 import torch
 from huggingface_hub import snapshot_download
 from PIL import Image
@@ -117,6 +118,9 @@ class FusionGraphs(Graphs):
     def __call__(self, *inputs) -> tuple:
         return super().__call__(inputs[0].shape[0], *inputs)
 
+    def warm(self, *inputs) -> None:
+        super().warm(inputs[0].shape[0], *inputs)
+
 
 class Sam3Detector:
     """``Sam3Image`` with its processor and text cache: what the detect engine calls.
@@ -131,6 +135,9 @@ class Sam3Detector:
     quantized by the producing norm / GELU / attention; ``fp8_encoder``: the DETR encoder's MLPs
     too (input norm and ReLU emitting fp8). ``text_device``: where the text encoder
     runs (``cpu``: fp32 on the host, its device memory freed; default the model's device).
+    ``capture``: ``load`` captures every fusion bucket and every text count up to ``max_texts``
+    new texts when placed on a CUDA device, then runs other shapes uncaptured; ``lazy`` captures
+    each on its first call.
     """
 
     def __init__(
@@ -149,7 +156,11 @@ class Sam3Detector:
         fp8: str | None = None,
         text_device: str | None = None,
         fp8_encoder: bool = False,
+        capture: str = "load",
+        max_texts: int = 64,
     ):
+        if capture not in ("load", "lazy"):
+            raise ValueError(f"capture {capture!r}: load or lazy")
         if fusion_compile and fusion_graph:
             raise ValueError("fusion_compile and fusion_graph are exclusive")
         if fusion_buckets not in ("pow2", "exact"):
@@ -157,6 +168,7 @@ class Sam3Detector:
         self.fusion_buckets, self.vision_compile = fusion_buckets, vision_compile
         self.text_graph, self.text_graphs = text_graph, None
         self.fp8, self.text_device, self.fp8_encoder = fp8, text_device, fp8_encoder
+        self.capture, self.max_texts = capture, max_texts
         self.model_name, self.box_source = model, box_source
         self.max_pairs, self.max_crops, self.text_cache = max_pairs, max_crops, text_cache
         self.fusion_compile, self.kernels, self.fusion_graph = fusion_compile, kernels, fusion_graph
@@ -188,10 +200,15 @@ class Sam3Detector:
         vision.backbone.rope(device)
         vision.backbone.fuse_qkv()
         vision.neck.positions(vision.backbone.grid, device, self.dtype)
+        # fp8 weights quantize once on a device that runs them; once quantized they move to any
+        # device, which then keeps them without running them (``parked``)
+        self.parked = None
         if self.fp8:
             why = fp8.supports(device, self.fp8)
             if why is not None:
-                raise ValueError(f"fp8 {self.fp8!r} on {device}: {why}")
+                if vision.backbone.layers[0].recipe is None:
+                    raise ValueError(f"fp8 {self.fp8!r} on {device}: {why}")
+                self.parked = f"fp8 {self.fp8!r} weights parked on {device}: {why}"
             vision.backbone.quantize(self.fp8, device)
             if self.fp8_encoder:
                 self.model.detr_encoder.quantize(self.fp8, device)
@@ -210,6 +227,37 @@ class Sam3Detector:
         self.text_graphs = None
         if self.text_graph and torch.device(self.text_device or device).type == "cuda":
             self.text_graphs = Graphs(self.text_features, clone=(0,))
+        if self.capture == "load" and not self.parked and torch.device(device).type == "cuda":
+            self.capture_all()
+
+    def capture_all(self) -> None:
+        """Every crop count's vision pass run once (its ops tuned), every fusion bucket and text
+        count captured, then both graph sets frozen."""
+        with torch.inference_mode():
+            pixels = self.preprocess([np.zeros((64, 64, 3), np.uint8)] * self.max_crops)
+            for n in range(1, self.max_crops + 1):
+                crops = self.encode_pixels(pixels[:n])
+            tokens = self.processor(text=["object"], return_tensors="pt").to(
+                self.text_device or self.device
+            )
+            ids, mask = tokens["input_ids"], tokens["attention_mask"]
+            if self.text_graphs is not None:
+                n = 1
+                while n <= self.max_texts:
+                    many = (ids.expand(n, -1), mask.expand(n, -1))
+                    self.text_graphs.warm(tuple(many[0].shape), *many)
+                    n *= 2
+                self.text_graphs.freeze()
+            if isinstance(self.fuse, FusionGraphs):
+                text = self.text_features(ids, mask).to(self.device, self.dtype)
+                valid = mask.to(self.device).bool()
+                sizes = {self.bucket(p) for p in range(1, self.max_pairs + 1)}
+                for n in sorted(sizes):
+                    vision = crops[0][2][None].expand(n, -1, -1, -1).contiguous()
+                    pos = self.positions.expand(n, -1, -1, -1)
+                    self.fuse.warm(vision, pos, text.expand(n, -1, -1), valid.expand(n, -1))
+                self.fuse.freeze()
+        self.texts.clear()
 
     def bucket(self, pairs: int) -> int:
         """The pass size a compiled or graphed fusion runs ``pairs`` at (static shapes, one
@@ -230,6 +278,8 @@ class Sam3Detector:
     def encode_pixels(self, pixels: torch.Tensor) -> list[dict]:
         """Per crop ``{level: features [C, h, w]}``, ``max_crops`` crops per vision pass; the
         level-2 positions kept for the fusion passes."""
+        if self.parked:
+            raise RuntimeError(self.parked)
         out = []
         for start in range(0, len(pixels), self.max_crops):
             part = pixels[start : start + self.max_crops].to(self.device, self.dtype)
