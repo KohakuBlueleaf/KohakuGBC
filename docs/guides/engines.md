@@ -67,7 +67,11 @@ engines = {
 | `stats_s` | vLLM's stats line every that many seconds (0: off) |
 
 The unit builds the prompt with the model's chat template (thinking off) and sends the pictures
-as the API path decodes them; a cancelled request is aborted in vLLM. A script that builds a
+as the API path decodes them; a cancelled request is aborted in vLLM. vLLM sizes its KV cache
+from `gpu_memory_utilization` less what the device holds while it profiles; other units of the
+machine loading on the same device then count against it (a third less KV on an RTX 5090 with
+SAM 3 and EmbeddingGemma beside it). `engine_args={"kv_cache_memory_bytes": ...}` sets the KV
+cache outright. A script that builds a
 machine with this entry needs an `if __name__ == "__main__":` guard: vLLM starts its engine core
 by spawning a process.
 

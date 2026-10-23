@@ -63,8 +63,8 @@ def sampler(out: Path, stop: threading.Event) -> None:
 
 
 def loads(out: Path, window: tuple[float, float]) -> dict:
-    """Mean util %, power W and memory MiB per card, and the host's load and busy %, over the
-    run window."""
+    """Mean util %, power W and memory MiB (and its peak) per card, and the host's load and busy
+    %, over the run window."""
     cards: dict[str, list] = {}
     with open(out / "gpu.csv", encoding="utf-8") as f:
         for row in f:
@@ -73,8 +73,11 @@ def loads(out: Path, window: tuple[float, float]) -> dict:
                 cards.setdefault(idx, []).append((float(util), float(power), float(mem)))
     report = {
         f"card{i}": {
-            k: round(statistics.mean(r[j] for r in rows), 1)
-            for j, k in enumerate(("util", "power_w", "mem_mib"))
+            **{
+                k: round(statistics.mean(r[j] for r in rows), 1)
+                for j, k in enumerate(("util", "power_w", "mem_mib"))
+            },
+            "mem_max_mib": max(r[2] for r in rows),
         }
         for i, rows in sorted(cards.items())
     }

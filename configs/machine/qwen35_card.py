@@ -13,6 +13,10 @@
 #   INT8 below (KohakuvLLM tools/quantize.py and tools/smooth.py; 1.9x the FP8 checkpoint's
 #   requests/s on a 3090, where FP8 runs weight-only).
 # GBC_VLM_STATE: the GDN recurrent state dtype, bfloat16 (+27% requests/s over float32).
+# GBC_VLM_KV_GB: vLLM's KV cache in GiB, set outright. Unset, vLLM sizes it from GBC_VLM_UTIL
+#   less what the card holds when it profiles: in-process, SAM 3 and EmbeddingGemma load in the
+#   same seconds and count against it (5090 at 0.75: 9.4 GiB in-process vs 14.5 behind a server;
+#   3090 at 0.72: 3.3 vs 8.4), so both paths compare only with this set.
 # GBC_VLM_UTIL: vLLM's share of the card; SAM 3 and EmbeddingGemma take about 5 GiB beside it.
 #   GBC's prompts are long (images), so the share and GBC_VLM_KV (auto or fp8) set how many
 #   requests the engine holds. GBC_VLM_LANES must not exceed its Mamba cache blocks.
@@ -48,6 +52,7 @@ _ATTN = os.environ.get("GBC_VLM_ATTN", "")
 _STATS = os.environ.get("GBC_VLM_STATS", "0") == "1"
 
 _URL = os.environ.get("GBC_VLM_URL", "")
+_KV_GB = float(os.environ.get("GBC_VLM_KV_GB", "0"))
 _STRUCTURED = os.environ.get("GBC_STRUCTURED", "prompt")
 
 # vLLM's engine, in-process or behind `vllm serve` (scripts/bench/machine/serve.py reads _VLLM)
@@ -55,6 +60,7 @@ _VLLM = {
     "model": os.environ.get("GBC_VLM_MODEL", "RedHatAI/Qwen3.5-4B-FP8-dynamic"),
     "served_model_name": "gbc-vlm",
     "gpu_memory_utilization": float(os.environ.get("GBC_VLM_UTIL", "0.55")),
+    **({"kv_cache_memory_bytes": int(_KV_GB * 2**30)} if _KV_GB else {}),
     "max_model_len": 8192,
     "max_num_seqs": _LANES,
     "mamba_ssm_cache_dtype": os.environ.get("GBC_VLM_STATE", "bfloat16"),
