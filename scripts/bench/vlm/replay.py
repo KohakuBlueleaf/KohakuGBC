@@ -191,8 +191,12 @@ async def replay(args) -> dict:
     urls = args.url.split(",")
     load = dict.fromkeys(urls, 0)
     gate = asyncio.Semaphore(args.inflight)
+    # Idle connections expire before the server's keep-alive (uvicorn's 5 s): a stalled server
+    # otherwise closes a connection a request was just sent on (ReadError, no response)
     limits = httpx.Limits(
-        max_connections=args.inflight + 8, max_keepalive_connections=args.inflight + 8
+        max_connections=args.inflight + 8,
+        max_keepalive_connections=args.inflight + 8,
+        keepalive_expiry=args.keepalive_s,
     )
     async with httpx.AsyncClient(timeout=httpx.Timeout(900, connect=30), limits=limits) as client:
 
@@ -239,6 +243,7 @@ def main() -> int:
         help="the schema to the server's structured outputs (grammar), to KohakuvLLM's grammar "
         "logits processor (kohaku), or not sent (none)",
     )
+    p.add_argument("--keepalive-s", type=float, default=2.0, help="idle connection expiry")
     p.add_argument("--no-image", action="store_true", help="no picture in any request (a probe)")
     p.add_argument("--max-tokens", type=int, default=0, help="every request's (1: prefill only)")
     args = p.parse_args()
