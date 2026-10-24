@@ -39,11 +39,19 @@
 # GBC_VLM_FRONTEND (in-process): vllm, or kohakuvllm (KohakuvLLM's frontend: GBC_VLM_PREP_WORKERS
 #   preparing processes, its vision tower here, GBC_VLM_VISION_FP8=1 for FP8 linears on sm89+).
 # GBC_VLM_STATS=1: vLLM's stats line every 5 s.
+# GBC_VLM_DTYPE: vLLM's dtype (bfloat16; float16 below sm80). GBC_VLM_MM_CACHE_GB: vLLM's
+#   multimodal processor cache (mm_processor_cache_gb; vLLM's 4 GiB if unset). GBC_VLM_MM_GRAPH=0:
+#   the vision encoder without CUDA graphs (below sm80 its SDPA path cannot be captured).
+# GBC_AUX_CARD: the card SAM 3 and EmbeddingGemma run on (GBC_CARD if unset), so a pair of cards
+#   splits one machine: the VLM alone on GBC_CARD. GBC_DETECT_DTYPE: SAM 3's dtype (auto: bfloat16
+#   on sm80+, float16 below).
 #   GBC_IMAGES=path/to/images gbc run configs/machine/qwen35_card.py configs/controls/mid.py
 
 import os
 
 _CARD = int(os.environ.get("GBC_CARD", "0"))
+_AUX = int(os.environ.get("GBC_AUX_CARD", str(_CARD)))
+_MM_CACHE = os.environ.get("GBC_VLM_MM_CACHE_GB", "")
 _OUT = os.environ.get("GBC_OUT", f"runs/machine/qwen35_card{_CARD}")
 _LANES = int(os.environ.get("GBC_VLM_LANES", "256"))
 _EVENTS = os.environ.get("GBC_EVENTS", "sampled")
@@ -61,6 +69,7 @@ _STRUCTURED = os.environ.get("GBC_STRUCTURED", "prompt")
 _VLLM = {
     "model": os.environ.get("GBC_VLM_MODEL", "RedHatAI/Qwen3.5-4B-FP8-dynamic"),
     "served_model_name": "gbc-vlm",
+    "dtype": os.environ.get("GBC_VLM_DTYPE", "bfloat16"),
     "gpu_memory_utilization": float(os.environ.get("GBC_VLM_UTIL", "0.55")),
     **({"kv_cache_memory_bytes": int(_KV_GB * 2**30)} if _KV_GB else {}),
     "max_model_len": 8192,
@@ -70,9 +79,10 @@ _VLLM = {
     "max_num_batched_tokens": int(os.environ.get("GBC_VLM_STEP_TOKENS", "8192")),
     "enable_prefix_caching": os.environ.get("GBC_VLM_PREFIX", "1") == "1",
     "limit_mm_per_prompt": {"image": 4, "video": 0},
+    **({"mm_processor_cache_gb": float(_MM_CACHE)} if _MM_CACHE else {}),
     "compilation_config": {
         "compile_mm_encoder": True,
-        "cudagraph_mm_encoder": True,
+        "cudagraph_mm_encoder": os.environ.get("GBC_VLM_MM_GRAPH", "1") == "1",
         **({"max_cudagraph_capture_size": _GRAPH_MAX} if _GRAPH_MAX else {}),
     },
     **({"scheduler_cls": _SCHEDULER} if _SCHEDULER else {}),
@@ -117,10 +127,10 @@ engines = {
     "detect": {
         "entry": "torch",
         "model": os.environ.get("GBC_DETECT_MODEL", "facebook/sam3"),
-        "dtype": "bfloat16",
+        "dtype": os.environ.get("GBC_DETECT_DTYPE", "auto"),
         "fp8": None if _DETECT_FP8 == "none" else _DETECT_FP8,
         "fusion_buckets": "pow2",
-        "devices": [f"cuda:{_CARD}"],
+        "devices": [f"cuda:{_AUX}"],
         "max_batch": int(os.environ.get("GBC_DETECT_BATCH", "4")),
         "wait_ms": 5.0,
         "memory_gb": float(os.environ.get("GBC_DETECT_GB", "3.5")),
@@ -128,7 +138,7 @@ engines = {
     "embed": {
         "entry": "torch",
         "model": os.environ.get("GBC_EMBED_MODEL", "google/embeddinggemma-300m"),
-        "devices": [f"cuda:{_CARD}"],
+        "devices": [f"cuda:{_AUX}"],
         "max_batch": 64,
         "memory_gb": 1.4,
     },
