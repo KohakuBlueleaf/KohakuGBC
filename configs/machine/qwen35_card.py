@@ -45,6 +45,9 @@
 # GBC_AUX_CARD: the card SAM 3 and EmbeddingGemma run on (GBC_CARD if unset), so a pair of cards
 #   splits one machine: the VLM alone on GBC_CARD. GBC_DETECT_DTYPE: SAM 3's dtype (auto: bfloat16
 #   on sm80+, float16 below).
+# GBC_DETECT_FORMER / GBC_EMBED_FORMER: the lane's batch former, size (requests) or budget (each
+#   request's costs: SAM 3's crops and pairs per pass, the embedder's texts and characters). On
+#   the RTX 5090 machine budget halves SAM 3's batches (7.4 -> 3.7 requests) and costs 4% img/s.
 #   GBC_IMAGES=path/to/images gbc run configs/machine/qwen35_card.py configs/controls/mid.py
 
 import os
@@ -132,6 +135,7 @@ engines = {
         "fusion_buckets": "pow2",
         "devices": [f"cuda:{_AUX}"],
         "max_batch": int(os.environ.get("GBC_DETECT_BATCH", "4")),
+        "former": os.environ.get("GBC_DETECT_FORMER", "size"),
         "wait_ms": 5.0,
         "memory_gb": float(os.environ.get("GBC_DETECT_GB", "3.5")),
     },
@@ -140,6 +144,7 @@ engines = {
         "model": os.environ.get("GBC_EMBED_MODEL", "google/embeddinggemma-300m"),
         "devices": [f"cuda:{_AUX}"],
         "max_batch": 64,
+        "former": os.environ.get("GBC_EMBED_FORMER", "size"),
         "memory_gb": 1.4,
     },
     "cpu": {"entry": "python", "workers": 8},

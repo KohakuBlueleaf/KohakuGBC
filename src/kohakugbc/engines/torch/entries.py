@@ -5,7 +5,12 @@ Settings: ``model`` (a checkpoint), ``devices`` (``"auto"``, a device, or a list
 device, a list inside the list one model split across those devices), ``dtype`` (float32 by
 default: OWLv2 in float16 gives batched scores up to 0.085 from single ones, float32 within
 1.3e-4; float16 with ``max_batch`` 1 is the PoC's own run), ``max_batch``, ``wait_ms`` (the batch
-former's wait), ``memory_gb`` (the plan's estimate per device), ``engine``
+former's wait), ``former`` (``size``: up to ``max_batch`` requests; ``budget``: Togeari's
+``BudgetFormer`` over each request's costs, ``budgets`` overriding the defaults: the detector's
+``crops`` (1 per request) and ``pairs`` (its texts) at SAM 3's ``max_crops`` / ``max_pairs``, or
+``max_batch`` / ``max_batch * max_texts`` for the other detectors; the embedder's ``texts`` and
+``chars`` at ``max_batch`` / 4 x ``graph_tokens``; a request over a budget runs alone),
+``memory_gb`` (the plan's estimate per device), ``engine``
 (``schedule``, ``isolation``, ``slots``, ``memory_cap_gb``, ``prep_workers``; slots whose models
 share devices, dtype and these settings share one engine). Detector: ``model`` names OWLv2
 (``google/owlv2-base-patch16-ensemble``, the PoC's) or SAM 3 (``facebook/sam3``, or a
@@ -27,7 +32,7 @@ captured; dtype float32) or ``st``.
 """
 
 from togeari.engines.torch import TorchAdapter, TorchEngine
-from togeari.policies import SizeOrWait
+from togeari.policies import BudgetFormer, SizeOrWait
 from transformers import AutoConfig
 
 from kohakugbc.engines import placement
@@ -72,7 +77,47 @@ def _engine(shared: dict, placements: list, dtype: str, settings: dict) -> Torch
     return shared[key]
 
 
-def _slot(name: str, model, settings: dict, shared: dict, default_dtype: str, arg) -> Slot:
+def detect_costs(item) -> dict:
+    """A detector request's costs from its inputs: one crop, one pair per text."""
+    return {"crops": 1, "pairs": len(item.inputs["request"]["texts"])}
+
+
+def embed_costs(item) -> dict:
+    """An embedder request's costs: one text, its characters (a cheap stand-in for tokens)."""
+    return {"texts": 1, "chars": len(item.inputs["text"])}
+
+
+# Each lane's cost estimator and its revision (part of Togeari's execution identity: bump it
+# when the estimate changes)
+COSTS = {
+    "detector": (detect_costs, "gbc-detect-crops-pairs/1"),
+    "embedder": (embed_costs, "gbc-embed-texts-chars/1"),
+}
+
+
+def former_of(name: str, model, settings: dict, budgets: dict):
+    """The lane's batch former: ``size`` (requests) or ``budget`` (``budgets`` updated by the
+    settings' ``budgets``)."""
+    wait_ms = float(settings.get("wait_ms", 2.0))
+    kind = settings.get("former", "size")
+    if kind == "size":
+        return SizeOrWait(model.max_batch, wait_ms)
+    if kind != "budget":
+        raise ValueError(f"former {kind!r}: size or budget")
+    estimate, revision = COSTS[name]
+    return BudgetFormer(
+        budgets={**budgets, **(settings.get("budgets") or {})},
+        estimate=estimate,
+        size=model.max_batch,
+        wait_ms=wait_ms,
+        oversized="singleton",
+        estimator_revision=revision,
+    )
+
+
+def _slot(
+    name: str, model, settings: dict, shared: dict, default_dtype: str, arg, budgets: dict
+) -> Slot:
     placements = placement.devices(settings.get("devices", "auto"))
     dtype = placement.dtype(settings.get("dtype", default_dtype), placements[0])
     engine = _engine(shared, placements, dtype, settings)
@@ -84,7 +129,7 @@ def _slot(name: str, model, settings: dict, shared: dict, default_dtype: str, ar
     ]
     return Slot(
         units=engine.units(name),
-        former=SizeOrWait(model.max_batch, float(settings.get("wait_ms", 2.0))),
+        former=former_of(name, model, settings, budgets),
         adapter=TorchAdapter(arg=arg),
         lane=dict(settings.get("lane") or {}),
         needs=needs,
@@ -136,7 +181,8 @@ def native_sam3(name: str, settings: dict, shared: dict, common: dict) -> Slot:
     if plan is not None:
         estimate = plan.estimate(crops, pairs) * 1.1 / placement.GIB
     settings = {"memory_gb": estimate, **settings, "dtype": dtype}
-    return _slot("detector", model, settings, shared, dtype, None)
+    budgets = {"crops": crops, "pairs": pairs}
+    return _slot("detector", model, settings, shared, dtype, None, budgets)
 
 
 @entry("detect", "torch")
@@ -165,7 +211,8 @@ def detector(settings: dict, shared: dict) -> Slot:
         )
     else:
         model = Owlv2Detector(name, max_batch=int(settings.get("max_batch", 8)), **common)
-    return _slot("detector", model, settings, shared, "float32", None)
+    budgets = {"crops": model.max_batch, "pairs": model.max_batch * model.max_texts}
+    return _slot("detector", model, settings, shared, "float32", None, budgets)
 
 
 @entry("embed", "torch")
@@ -174,10 +221,12 @@ def embedder(settings: dict, shared: dict) -> Slot:
     impl = settings.get("impl", "auto")
     if impl == "auto":
         impl = "native" if AutoConfig.from_pretrained(name).model_type in NATIVE_GEMMA else "st"
+    max_batch = int(settings.get("max_batch", 64))
+    budgets = {"texts": max_batch, "chars": 4 * int(settings.get("graph_tokens", 4096))}
     if impl == "native":
         model = NativeEmbedder(
             name,
-            max_batch=int(settings.get("max_batch", 64)),
+            max_batch=max_batch,
             name="embedder",
             kernels=bool(settings.get("kernels", True)),
             graphs=bool(settings.get("graphs", True)),
@@ -188,6 +237,6 @@ def embedder(settings: dict, shared: dict) -> Slot:
         # float32 keeps the PoC's vectors (5090: 1 - cos <= 1e-7, 1.9-8.3x the
         # sentence-transformers fp32 throughput); bfloat16 is 1.8-1.2x faster again, with a
         # 1 - cos tail to 2e-3 on short names
-        return _slot("embedder", model, settings, shared, "float32", "text")
-    model = SentenceEmbedder(name, max_batch=int(settings.get("max_batch", 64)), name="embedder")
-    return _slot("embedder", model, settings, shared, "float32", "text")
+        return _slot("embedder", model, settings, shared, "float32", "text", budgets)
+    model = SentenceEmbedder(name, max_batch=max_batch, name="embedder")
+    return _slot("embedder", model, settings, shared, "float32", "text", budgets)

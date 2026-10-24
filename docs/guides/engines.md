@@ -116,6 +116,7 @@ engines = {
 | `devices` | `"auto"` (every CUDA device, else the CPU), a device, or a list: one unit per device |
 | `dtype` | float32 by default (GBC's own SAM 3: `"auto"`); `"auto"` picks bfloat16 or float16 by the device |
 | `max_batch`, `wait_ms` | batch size; how long a batch waits for more requests |
+| `former`, `budgets` | `"size"` (default): up to `max_batch` requests; `"budget"`: Togeari's `BudgetFormer` over each request's costs (the detector's `crops` and `pairs`, the embedder's `texts` and `chars`; `budgets` overrides the defaults), a request over a budget runs alone. On the RTX 5090 machine `budget` halves SAM 3's batches and costs 4% img/s |
 | `memory_gb` | the placement plan's estimate per device |
 | `engine` | Togeari torch engine options: `schedule`, `isolation`, `slots`, `memory_cap_gb`, `prep_workers` |
 | `box_threshold`, `max_texts` | the detector's box score floor (0.05) and texts per forward row (16) |
