@@ -48,6 +48,8 @@
 # GBC_DETECT_FORMER / GBC_EMBED_FORMER: the lane's batch former, size (requests) or budget (each
 #   request's costs: SAM 3's crops and pairs per pass, the embedder's texts and characters). On
 #   the RTX 5090 machine budget halves SAM 3's batches (7.4 -> 3.7 requests) and costs 4% img/s.
+# GBC_VLM_TIMEOUT_S: the VLM lane's deadline per attempt (none if unset); an expired request
+#   answers empty and is counted in the job's policy failures.
 # GBC_WAITS_S: why jobs wait, sampled every that many seconds into the report's waits.jsonl.
 #   GBC_IMAGES=path/to/images gbc run configs/machine/qwen35_card.py configs/controls/mid.py
 
@@ -56,6 +58,8 @@ import os
 _CARD = int(os.environ.get("GBC_CARD", "0"))
 _AUX = int(os.environ.get("GBC_AUX_CARD", str(_CARD)))
 _MM_CACHE = os.environ.get("GBC_VLM_MM_CACHE_GB", "")
+_TIMEOUT = os.environ.get("GBC_VLM_TIMEOUT_S", "")
+_VLM_LANE = {"timeout_s": float(_TIMEOUT)} if _TIMEOUT else {}
 _WAITS = os.environ.get("GBC_WAITS_S", "")
 _OUT = os.environ.get("GBC_OUT", f"runs/machine/qwen35_card{_CARD}")
 _LANES = int(os.environ.get("GBC_VLM_LANES", "256"))
@@ -106,6 +110,7 @@ _INPROCESS = {
     "model": _VLLM["model"],
     "devices": [_CARD],
     "capacity": _LANES,
+    "lane": _VLM_LANE,
     "structured": _STRUCTURED,
     "stats_s": 5.0 if _STATS else 0.0,
     "frontend": os.environ.get("GBC_VLM_FRONTEND", "vllm"),
@@ -125,6 +130,7 @@ _HTTP = {
     "structured": _STRUCTURED,
     "metrics": "vllm",
     "endpoints": [{"base_url": _URL, "max_inflight": _LANES}],
+    "lane": _VLM_LANE,
 }
 
 engines = {

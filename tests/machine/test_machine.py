@@ -79,6 +79,19 @@ def test_waits_are_sampled_beside_the_report(tmp_path):
     assert all(sum(r["reasons"].values()) == r["relations"] for r in rows)
 
 
+def test_an_expired_vlm_attempt_answers_empty_and_is_counted():
+    # Every VLM reply takes longer than the lane's deadline: each request expires, the program's
+    # ask answers empty, and the job carries the deadline failures
+    trace = FIXTURES / "text"
+    slow = engines(trace, latency_ms=200.0)
+    slow["vlm"]["lane"] = {"timeout_s": 0.02}
+    records, _, _ = run({"engines": slow, "source": {"kind": "trace", "path": str(trace)}})
+    assert records and all(r.ok for r in records)
+    failures = [f for r in records for f in r.stats.get("policy_failures", [])]
+    assert failures and all(f["reason"] == "deadline" and f["scope"] == "attempt" for f in failures)
+    assert {f["node"] for f in failures} == {"chat"}
+
+
 def test_configuration_errors_are_listed_together():
     with pytest.raises(ValueError) as err:
         build({"engines": {"vlm": {"entry": "nope"}, "detect": {}}})

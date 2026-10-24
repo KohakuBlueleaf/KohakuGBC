@@ -2,7 +2,8 @@
 every card and the host CPU sampled each second, and the counters of the vLLM servers it calls
 (if any) before and after the run.
 
-Writes ``OUT/summary.json`` (with each card's and the host's mean load over the run),
+Writes ``OUT/summary.json`` (with each card's and the host's mean load over the run, and the
+jobs' policy failures by node, reason and scope),
 ``OUT/graphs.jsonl``, ``OUT/gpu.csv`` (time, index, memory MiB, power W, SM clock, util %),
 ``OUT/cpu.csv`` (time, 1-minute load average, busy % of all cores; Linux),
 ``OUT/vllm_<port>.{before,after}.txt`` and the machine report. Machines on the other cards of
@@ -19,6 +20,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import Counter
 from pathlib import Path
 
 import httpx
@@ -114,6 +116,16 @@ def stats(graphs: list[dict]) -> dict:
     }
 
 
+def policy_failures(records: list) -> dict:
+    """Togeari's enforced failures (deadlines, resource budgets) by node, reason and scope."""
+    counts = Counter(
+        f"{f.get('node')}:{f.get('reason')}:{f.get('scope')}"
+        for r in records
+        for f in (r.stats or {}).get("policy_failures", [])
+    )
+    return dict(counts)
+
+
 def scrape(ports: list[int], out: Path, tag: str) -> None:
     for port in ports:
         try:
@@ -160,6 +172,7 @@ def main() -> int:
         "failed": len(failed),
         "no_graph": sum(1 for r in records if r.ok and r.outputs.get("graph") is None),
         "first_failures": failed[:5],
+        "policy_failures": policy_failures(records),
         "build_load_s": round(t1 - t0, 1),
         "run_s": round(t2 - t1, 1),
         "jobs_per_s": round(len(records) / (t2 - t1), 3),
