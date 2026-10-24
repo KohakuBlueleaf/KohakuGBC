@@ -61,6 +61,24 @@ def test_machine_gives_the_poc_graphs_and_conforms(arm):
         assert verdict.ok, (rec.key, verdict.reason)
 
 
+def test_waits_are_sampled_beside_the_report(tmp_path):
+    # Slow VLM replies: jobs wait on the VLM lane, and the samples say so
+    trace = FIXTURES / "text"
+    records, _, _ = run(
+        {
+            "engines": engines(trace, latency_ms=30.0, capacity=4),
+            "source": {"kind": "trace", "path": str(trace), "repeat": 4},
+            "machine": {"report": str(tmp_path / "report"), "waits": {"every_s": 0.05}},
+        }
+    )
+    assert all(r.ok for r in records)
+    rows = [json.loads(line) for line in (tmp_path / "report" / "waits.jsonl").open()]
+    assert len(rows) >= 3
+    assert all(r["cost_ms"] >= 0 and r["entities"] + r["relations"] <= 10_000 for r in rows)
+    assert any(r["lanes"].get("vlm", {}).get("lane_capacity", 0) > 0 for r in rows), rows
+    assert all(sum(r["reasons"].values()) == r["relations"] for r in rows)
+
+
 def test_configuration_errors_are_listed_together():
     with pytest.raises(ValueError) as err:
         build({"engines": {"vlm": {"entry": "nope"}, "detect": {}}})

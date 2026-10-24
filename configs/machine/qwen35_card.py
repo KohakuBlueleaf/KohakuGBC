@@ -48,6 +48,7 @@
 # GBC_DETECT_FORMER / GBC_EMBED_FORMER: the lane's batch former, size (requests) or budget (each
 #   request's costs: SAM 3's crops and pairs per pass, the embedder's texts and characters). On
 #   the RTX 5090 machine budget halves SAM 3's batches (7.4 -> 3.7 requests) and costs 4% img/s.
+# GBC_WAITS_S: why jobs wait, sampled every that many seconds into the report's waits.jsonl.
 #   GBC_IMAGES=path/to/images gbc run configs/machine/qwen35_card.py configs/controls/mid.py
 
 import os
@@ -55,6 +56,7 @@ import os
 _CARD = int(os.environ.get("GBC_CARD", "0"))
 _AUX = int(os.environ.get("GBC_AUX_CARD", str(_CARD)))
 _MM_CACHE = os.environ.get("GBC_VLM_MM_CACHE_GB", "")
+_WAITS = os.environ.get("GBC_WAITS_S", "")
 _OUT = os.environ.get("GBC_OUT", f"runs/machine/qwen35_card{_CARD}")
 _LANES = int(os.environ.get("GBC_VLM_LANES", "256"))
 _EVENTS = os.environ.get("GBC_EVENTS", "sampled")
@@ -149,6 +151,11 @@ engines = {
     },
     "cpu": {"entry": "python", "workers": 8},
 }
-machine = {"vlm_waiting": _LANES, "report": f"{_OUT}/report", "knobs": {"events": _EVENTS}}
+machine = {
+    "vlm_waiting": _LANES,
+    "report": f"{_OUT}/report",
+    "waits": {"every_s": float(_WAITS)} if _WAITS else None,
+    "knobs": {"events": _EVENTS},
+}
 source = {"kind": "folder", "path": os.environ.get("GBC_IMAGES", "images")}
 sink = {"kind": "graphs", "path": f"{_OUT}/graphs.jsonl"}

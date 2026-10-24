@@ -16,6 +16,7 @@ from togeari.stores import MemoryStore
 from kohakugbc.engines import builtin, placement, registry
 from kohakugbc.io import sinks, sources
 from kohakugbc.machine import config as cfg_layers
+from kohakugbc.machine.waits import WaitsReport
 from kohakugbc.nodes import library
 from kohakugbc.program import ENTRY, PROGRAM
 
@@ -136,6 +137,10 @@ def build_parts(*layers) -> Parts:
     )
     lanes = lanes_of(slots)
     plugins = [RunReport(Path(m["report"]))] if m.get("report") else []
+    if m.get("waits") is not None:
+        if not m.get("report"):
+            raise ValueError("machine.waits: needs machine.report (it writes beside it)")
+        plugins.append(WaitsReport(Path(m["report"]) / "waits.jsonl", **m["waits"]))
     store = store_of(m.get("store"))
     machine = Machine(
         program=PROGRAM,

@@ -21,6 +21,8 @@ DEFAULTS = {
         "record": None,
         "store": None,
         "report": None,
+        # Why jobs wait (``kohakugbc.machine.waits``) beside the report: {"every_s", "limit"}
+        "waits": None,
         "knobs": {},
     },
     "source": None,
