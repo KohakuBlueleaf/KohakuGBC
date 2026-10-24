@@ -11,6 +11,9 @@ Writes ``OUT.jsonl`` (one row per request: latency, ttft, tokens, text) and ``OU
 
     python scripts/bench/vlm/replay.py TRACE_DIR IMAGE_ROOT --url http://127.0.0.1:8000/v1 \
         --model qwen3.5-4b --flavour vllm --inflight 64 --repeat 4 --out runs/replay/vllm_c64
+
+``--structured kohaku`` sends each schema in ``vllm_xargs`` to a server running KohakuvLLM's
+grammar (``--logits-processors kohakuvllm.grammar:JsonSchemaLogits``).
 """
 
 import argparse
@@ -71,9 +74,11 @@ def body(row: dict, pic: str | None, args) -> dict:
         "stream_options": {"include_usage": True},
         "chat_template_kwargs": {"enable_thinking": False},
     }
-    if req["schema"] and not args.no_schema:
+    if req["schema"] and args.structured != "none":
         schema = chat.schema(req["schema"])
-        if args.flavour == "vllm":
+        if args.structured == "kohaku":
+            out["vllm_xargs"] = {"kohaku_json_schema": json.dumps(schema)}
+        elif args.flavour == "vllm":
             out["structured_outputs"] = {"json": schema}
         else:
             out["response_format"] = {
@@ -227,7 +232,13 @@ def main() -> int:
     p.add_argument("--inflight", type=int, default=64)
     p.add_argument("--repeat", type=int, default=1)
     p.add_argument("--out", required=True)
-    p.add_argument("--no-schema", action="store_true", help="no structured output (a probe)")
+    p.add_argument(
+        "--structured",
+        choices=("grammar", "kohaku", "none"),
+        default="grammar",
+        help="the schema to the server's structured outputs (grammar), to KohakuvLLM's grammar "
+        "logits processor (kohaku), or not sent (none)",
+    )
     p.add_argument("--no-image", action="store_true", help="no picture in any request (a probe)")
     p.add_argument("--max-tokens", type=int, default=0, help="every request's (1: prefill only)")
     args = p.parse_args()
