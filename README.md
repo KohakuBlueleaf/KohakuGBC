@@ -426,7 +426,7 @@ src/kohakugbc-rust/       graph resolution in Rust (kohakugbc._rs)
 configs/              machine and engine configurations
 scripts/              trace recording, benchmarks, docs figures
 docs/                 concepts, guides, internals, performance
-tests/                program, graph, machine, engines; fixtures: recorded PoC traces
+tests/                data and format checks: program, graph, engines; fixtures: recorded PoC traces
 ```
 
 ## Documentation
@@ -438,27 +438,25 @@ tests/                program, graph, machine, engines; fixtures: recorded PoC t
 | [docs/internals](docs/internals/README.md) | the machine, the placement plan, engines on other nodes, the program and its differences from the PoC, traces, graph resolution |
 | [docs/performance](docs/performance/README.md) | the machine on pseudo engines, on real engines, the VLM engines alone, the detector and the embedder on six GPUs and the CPU |
 | [docs/internals/kernels.md](docs/internals/kernels.md) | the kernel package: registry, tuning, graphs, fp8, every op per arch |
-| [kohakugbc_models/vlm/qwen35](src/kohakugbc_models/vlm/qwen35/README.md) | the Qwen3.5 engine: settings, design, tests |
+| [kohakugbc_models/vlm/qwen35](src/kohakugbc_models/vlm/qwen35/README.md) | the Qwen3.5 engine: settings, design, measuring |
 
 ## Checks
 
 ```
-python -m pytest tests -q -m "not gpu and not serial and not weights" -n auto
-python -m pytest tests -q -m serial                   # wall-clock bounds, alone
-python -m pytest tests -q -m "gpu or weights"         # real models, on cuda:0
-QWEN35_MODEL=path/to/Qwen3.5-4B python -m pytest tests/vlm/qwen35
+python -m pytest tests -q                             # data and format checks, CPU only
 python scripts/bench/pseudo_machine.py                # the machine on pseudo engines
 scripts/bench/machine/card.sh CARD TAG                # one machine per card, every metric on disk
 python scripts/bench/real_machine.py configs/machine/qwen35_local.py --name local   # real engines
 python scripts/bench/vlm_units.py --trace runs/traces/poc30/text --name qwen35 --engine '{"entry": "qwen35", "model": "..."}'
 ```
 
-`tests/program` replays recorded jobs of every fixture arm through the reference interpreter and
-compares graphs by digest; `tests/graph` holds both resolutions to ml-gbc's; `tests/machine` runs
-the jobs on replay engines in every configuration (several units, remote units, a unit down
-mid-run, failing requests, units joining and leaving, snapshots and resume); `tests/engines`
-checks every entry against Togeari's engine contract and the vision models against the PoC's
-recorded outputs.
+GBC is a compute project: the tests check data and formats only, and everything else is checked
+by runs on the cards. `tests/program` replays recorded jobs of every fixture arm through the
+reference interpreter and compares graphs by digest; `tests/graph` holds both resolutions to
+ml-gbc's; `tests/engines` checks the API entry's request shapes, the batch formers and SAM 3's
+mask boxes. Engines, kernels and the machine are measured by the benches above, every metric on
+disk ([performance](docs/performance/README.md)). CI checks the code's form (lint, import
+boundary, rustfmt, clippy).
 
 ## Contributing
 

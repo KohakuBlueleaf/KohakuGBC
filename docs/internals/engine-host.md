@@ -114,10 +114,6 @@ batching and admission read its capacity and load.
 
 ## Checks
 
-`tests/engines/test_hosting.py`: the machine on spawned hosts gives the PoC's graphs under both
-transports; a spawned host's unit keeps the contract with the host's process killed mid-check,
-and starts again on a new process; a 4 MiB payload crosses in one shared-memory block, comes back
-equal and is released. `tests/engines/test_remote.py`: remote stream and batch units keep Togeari's engine contract
-(`check_engine`, with the host killed mid-check: the next submit is a `UnitError`); the real
-detector in a `gbc host` process gives the machine the PoC's graphs; a machine on Windows runs on
-vLLM served by `gbc host` in WSL (`KOHAKUGBC_REMOTE_VLM`).
+Runs on the cards: `scripts/bench/machine/card.sh` runs the machine on its engine hosts
+(`configs/machine/qwen35_card.py`, `GBC_HOSTING=process`), every metric on disk; the numbers are
+in [the flagship run](../performance/flagship.md).

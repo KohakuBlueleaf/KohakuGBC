@@ -103,8 +103,3 @@ max-doc-length = 100
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = [
-    "gpu: needs a CUDA device; `-m \"not gpu\"` runs the CPU-only suite",
-    "serial: asserts a wall-clock bound or a scheduling outcome; runs in its own pass without pytest-xdist (`-m serial`)",
-    "weights: loads real model weights (downloads on first use)",
-]

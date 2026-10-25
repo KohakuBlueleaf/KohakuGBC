@@ -68,23 +68,6 @@ one with a unit error).
 | Grammar | `serve/grammar.py` | xgrammar token masks per JSON schema; the forced-token jump |
 | Unit | `kohakugbc/engines/vlm/qwen35.py` | the stream contract: submit, cancel, capacity, load, stats; the placement plan's reservation |
 
-## Tests
-
-```
-QWEN35_MODEL=path/to/Qwen3.5-4B pytest tests/vlm/qwen35
-```
-
-- `test_qwen35_ops.py`: every backend against the eager reference on packed sequences in shuffled
-  slots and pages (outputs, states written back, untouched slots); each check is shown able to
-  fail on a wrong state or page table.
-- `test_qwen35_model.py`: the forward against transformers' on a recorded request with its image
-  (argmax agreement and KL over 48 reply tokens; a forward without the image is caught);
-  resuming from a snapshot at either boundary equals a full prefill (a broken convolution state
-  is caught); a captured decode graph equals the eager decode.
-- `test_qwen35_unit.py`: Togeari's engine contract checks on recorded GBC requests in three
-  configurations (vLLM-like schemas; compact JSON with `exact`; `string` with bfloat16 states and
-  both boundaries); the machine with this entry as its VLM.
-
 ## Measuring
 
 `scripts/bench/vlm_units.py` runs any `vlm` entry through the unit contract on recorded

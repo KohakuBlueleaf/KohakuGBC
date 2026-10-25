@@ -32,16 +32,16 @@ The environment is `.venv` (uv). The install builds the extension (maturin), so 
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test --no-default-features
-.venv\Scripts\python.exe -m pytest tests -q -m "not gpu and not serial and not weights" -n auto --maxprocesses 8 --dist worksteal
-.venv\Scripts\python.exe -m pytest tests -q -m "serial and not gpu"
+.venv\Scripts\python.exe -m pytest tests -q
 .venv\Scripts\python.exe -m black --line-length 100 src tests scripts configs
 .venv\Scripts\python.exe -m ruff check src tests scripts configs
 .venv\Scripts\python.exe scripts\check_imports.py
 .venv\Scripts\python.exe scripts\check_md_black.py .
 ```
 
-`gpu` tests need a CUDA device; `weights` tests load real model weights; `serial` tests assert a
-wall-clock bound or a scheduling outcome and run alone.
+GBC is a compute project: `tests/` holds data and format checks only (CPU); engines,
+kernels and the machine are checked by runs on the cards (`scripts/bench/`), never by tests. CI
+checks the code's form only (lint, import boundary, rustfmt, clippy).
 
 ## Rules
 
