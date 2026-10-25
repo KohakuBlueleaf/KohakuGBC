@@ -27,9 +27,21 @@ call the sequential run cannot tell apart, and turns their model calls into batc
 
 ## Highlights
 
+- **2.06 images/s on one RTX 5090, 8.17 on four.** Qwen3.5-4B, SAM 3 and EmbeddingGemma on each
+  card, about 15 vertices and 27 captions per graph; each image is 41 s in the machine at the
+  median, however long the source runs. Four cards give 3.96x one card
+  ([measured](#measured)).
+- **Engines in their own processes.** Every card's engines run in an engine host process; the
+  machine's process holds connectors and the dispatcher only, over shared memory. That is +9%
+  over the same engines in the machine's process, and the same connector reaches engines on
+  other nodes.
+- **vLLM 3.1x faster on this workload.** [KohakuvLLM](https://github.com/KohakuBlueleaf/KohakuvLLM)
+  (a drop-in vLLM plugin) takes `vllm serve` from 11.4 to 35.0 requests/s on one RTX 5090: FP8
+  GDN projections, a bf16 or INT8 GDN state, a Rust JSON grammar, and a phased scheduler. Every
+  reply is schema-valid.
 - **GBC at scale, with the models you choose.** Thousands to millions of images through a hosted
-  API, your own vLLM or SGLang servers, or everything in one process on your GPU; engines on
-  other nodes join the same lanes.
+  API, your own vLLM or SGLang servers, or engines on your GPUs; engines on other nodes join the
+  same lanes.
 - **Exactly the sequential procedure.** Every job can be recorded and replayed through KIR's
   reference interpreter. On recorded runs of GBC's proof of concept, every graph equals the
   PoC's to the digest.
@@ -231,9 +243,17 @@ images with SAM 3 (Qwen3.5-4B FP8 on vLLM, one RTX 4090, 64 VLM requests in flig
 
 ```mermaid
 flowchart LR
-    src[("source")] --> adm["admission"] --> jobs["image jobs<br/>gbc.kir, out of order"]
-    jobs <-->|"calls"| lanes["lanes<br/>vlm · detect · embed · cpu"] <--> units["engine units<br/>API · vLLM · qwen35 · torch · remote"]
-    jobs --> sink[("graphs.jsonl")]
+    subgraph proc["machine process"]
+        direction LR
+        src[("source")] --> adm["admission"] --> jobs["image jobs<br/>gbc.kir, out of order"]
+        jobs <-->|"calls"| lanes["lanes<br/>vlm · detect · embed · cpu"]
+        lanes <--> conn["connectors<br/>remote units · API units"]
+        jobs --> sink[("graphs.jsonl")]
+    end
+    conn <-->|"shm / inband"| h0["gbc host, card 0<br/>vLLM · SAM 3 · EmbeddingGemma"]
+    conn <-->|"shm / inband"| h1["gbc host, card N"]
+    conn <-->|"TCP"| far["gbc host on another node"]
+    conn <-->|"HTTP"| api["OpenAI-compatible or Anthropic API"]
 ```
 
 Togeari runs each image job like a thread on an out-of-order CPU core: statements issue as soon
@@ -243,13 +263,25 @@ result is exactly the sequential run's. Across jobs, every model call of one kin
 lane: the detect lane batches crops from many images into one forward, the VLM lane keeps its
 units' queues full.
 
-![The GBC machine on 30 recorded images: every engine call per image over time, calls in flight per lane, and one image's overlapping calls](docs/assets/machine.jpg)
+Each lane's units are connectors. With `GBC_HOSTING=process` (the default of
+`configs/machine/qwen35_card.py`), the machine starts one `gbc host` per card running that card's
+engines, and the lane holds a remote unit for each. The dispatcher then has its process's GIL to
+itself: it does not share it with vLLM's frontend or SAM 3's preparation. Images and tensors
+travel in shared-memory blocks, everything else as small messages, and capacity and load are
+reported back at least every 0.2 s
+([engine hosts](docs/internals/engine-host.md)). The same engines in the machine's process
+(`GBC_HOSTING=inprocess`) remain one setting away.
 
-One run of the machine from its event log (`scripts/docs/machine_view.py`): 30 recorded images
-on replay engines at their recorded latencies. Left, each image is a row and each engine call a
-bar on its lane's colour; the images overlap on the shared engines. Right, the VLM lane stays at
-its capacity of 32 until the last images finish, and a single image keeps up to 10 of its own VLM
-requests in flight at once.
+![The GBC machine on one RTX 5090: 240 images, every engine call per image over time, calls in flight per lane, and one image's overlapping calls](docs/assets/machine.jpg)
+
+One run of the machine from its event log (`scripts/docs/machine_view.py`). It is 240 COCO
+images on one RTX 5090 with the defaults of `configs/machine/qwen35_card.py` (engines in a host
+process, 96 resident images), taking 126 s for 19,849 engine calls (1.91 img/s, loading
+excluded). Left, each image is a row and each engine call a bar in its lane's colour. The first
+96 images are admitted at once, and each later image enters as one finishes, so images overlap
+on the shared engines. Right, the VLM lane fills to its 384 lanes as the first images fan out,
+then holds 100–300 requests in flight as images come and go. A single image keeps up to 10 of
+its own VLM requests in flight at once.
 
 | Slot | Node | Lane | Entries |
 |---|---|---|---|
@@ -344,8 +376,51 @@ were unseeded, relational questions asked once at the end by default), each diff
 
 ## Measured
 
-All on one desktop: an RTX 4090 (24 GiB), Windows 11, Python 3.13, torch 2.14. Full tables and
-methods: [docs/performance](docs/performance/README.md).
+Full tables and methods: [docs/performance](docs/performance/README.md).
+
+### The machine on RTX 5090s
+
+A Linux box with four RTX 5090s; `configs/machine/qwen35_card.py` with the `mid` and `sam3`
+control presets on COCO val2017. Qwen3.5-4B (FP8, FP8 GDN projections) runs through vLLM 0.32
+with KohakuvLLM's PhasedScheduler, grammar and INT8 GDN state, at 384 lanes and a 12 GiB KV
+cache. GBC's SAM 3 and EmbeddingGemma share the card. 96 images are resident per card, and job
+seconds are each image's time from admission to its graph
+([flagship](docs/performance/flagship.md)):
+
+| Engines | Cards | Images | img/s | Job s p50 / p90 / p99 | GPU busy |
+|---|---|---|---|---|---|
+| in the machine's process | 1 | 1200 | 1.886 | 44 / 58 / 71 | 97.2% |
+| **one engine host per card** (the default) | 1 | 1200 | **2.061** | 41 / 71 / 87 | 98.1% |
+| **one engine host per card** (the default) | 4 | 4800 | **8.165** | 42 / 67 / 84 | 96.2-97.8% |
+
+Both one-card runs make the same engine calls: 16.5k VLM, 11.1k detector and 12.1k embedder.
+The card is power-bound at 98% busy. With the engines in a host, the dispatcher keeps its GIL
+and the detector's queue drains (61 to 14 requests waiting). One machine over four cards gives
+3.96x one card with its job times unchanged. Throughput and job time hold however long the
+source runs, because admission bounds the resident images.
+
+**The VLM behind `vllm serve`**, one RTX 5090, the same workload's 1724 recorded requests
+(about 1000 prompt tokens, 100 reply tokens, one image and one JSON schema each), 512 in flight,
+mean of four cards ([KohakuvLLM](https://github.com/KohakuBlueleaf/KohakuvLLM)):
+
+| Step (`*`: KohakuvLLM) | req/s | Gain |
+|---|---|---|
+| stock vLLM (0.55 of the card, 256 seqs, xgrammar) | 11.4 | |
+| + 0.90 of the card, 384 seqs | 11.7 | +2% |
+| + FP8 GDN projections * | 12.9 | +11% |
+| + bf16 GDN state * | 26.7 | +107% |
+| + our grammar, replacing xgrammar * | 28.8 | +8% |
+| + INT8 GDN state * | 30.1 | +5% |
+| + PhasedScheduler * | **35.0** | **+16%** |
+
+In the machine, the grammar is also the fastest way to get structured replies: 1.589 img/s,
+against 1.539 for prompt + one retry, 1.426 for guidance and 1.226 for xgrammar. On RTX 3090s
+(SmoothQuant INT8, 6 GiB KV cache, the same configuration), the machine gives 0.630 img/s per
+card.
+
+### On one RTX 4090 desktop
+
+An RTX 4090 (24 GiB) on Windows 11, Python 3.13, torch 2.14.
 
 **The machine on pseudo engines** (`scripts/bench/pseudo_machine.py`: 120 recorded jobs per
 configuration, replayed latencies divided by 4). The VLM lane is the limit; the machine keeps it
@@ -372,37 +447,34 @@ the one GPU; wall time includes loading the models):
 One portrait image on the same GPU: 34 s with OWLv2, 79 s with transformers' SAM 3 (the device
 fills with SAM 3 beside the VLM).
 
-**The machine on one RTX 5090** (`configs/machine/qwen35_card.py`, 1200 COCO images, everything
-on the card; [flagship](docs/performance/flagship.md)): 2.06 img/s with each image 41 s in the
-machine at the median (87 s p99), the card at its power cap; the same throughput and latency
-however long the source runs. The engines run in an engine host process per card and the
-machine's process holds connectors only: one machine over four cards gives 8.17 img/s, each
-image still 42 s at the median.
-
-**The detector and the embedder** (GBC's own SAM 3 and EmbeddingGemma; 45 recorded detector
-requests through the detect engine, 925 names; [six GPUs and the CPU](docs/performance/detector.md)):
-
-| GPU | SAM 3, GBC's / transformers' | EmbeddingGemma fp32, GBC's / sentence-transformers' |
-|---|---|---|
-| RTX 4090 (bf16) | 2.41 s / 5.48 s | 6004 / 1472 texts/s |
-| RTX 5090 (bf16) | 1.50 s / 3.44 s | 7307 / 1726 texts/s |
-
 **The VLM alone** (`scripts/bench/vlm_units.py`: the 425 VLM requests of the text arm, 409
-measured, 64 in flight, Qwen3.5-4B):
+measured, 64 in flight, Qwen3.5-4B, stock vLLM):
 
 | Engine | Requests/s | Reply tokens/s | Latency p50 / p95 |
 |---|---|---|---|
 | `qwen35` (float32 states) | 7.48 | 828 | 7.51 s / 11.85 s |
 | vLLM 0.32 in WSL | 10.21 | 1101 | 6.18 s / 9.76 s |
 
+### The detector and the embedder
+
+GBC's own SAM 3 and EmbeddingGemma against their reference libraries: 45 recorded detector
+requests through the detect engine and 925 names
+([six GPUs and the CPU](docs/performance/detector.md)):
+
+| GPU | SAM 3, GBC's / transformers' | EmbeddingGemma fp32, GBC's / sentence-transformers' |
+|---|---|---|
+| RTX 4090 (bf16) | 2.41 s / 5.48 s | 6004 / 1472 texts/s |
+| RTX 5090 (bf16) | 1.50 s / 3.44 s | 7307 / 1726 texts/s |
+
 ## Repository layout
 
 ```mermaid
 flowchart LR
-    cli["cli"] --> machine["machine"] --> program["program"] --> nodes["nodes"] --> graph["graph (Python, Rust)"]
-    machine --> engines["engines"] --> togeari["Togeari"]
+    cli["cli"] --> machine["machine"] --> program["program"] --> nodes["nodes"] --> gbcgraph["graph (Python, Rust)"]
+    machine --> togeari["Togeari"]
+    machine --> engines["engines<br/>vlm · torch · host · replay"] --> models["kohakugbc_models<br/>detect · embed · vlm · kernels"]
+    engines --> kvllm["KohakuvLLM"]
     program --> kir["KohakuNodeIR"]
-    engines --> models["kohakugbc_models (detect, embed, kernels)"]
 ```
 
 ```

@@ -4,12 +4,12 @@ Left, every image job as a row and every engine call it made as a bar on its lan
 the run reads as images overlapping on shared engines. Right, the calls in flight on each lane
 over time, and one image job alone: its calls stacked where they overlap.
 
-The run behind the README's figure: ``configs/machine/replay_text.py`` (30 recorded images on
-replay engines at their recorded latencies, VLM capacity 32) with ``machine.knobs.events = "all"``
-and a run report.
+The run behind the README's figure: ``configs/machine/qwen35_card.py`` with the ``mid`` and
+``sam3`` control presets on one RTX 5090 (240 COCO val2017 images, engines in a host process,
+384 VLM lanes) with ``GBC_EVENTS=all`` and a run report (``GBC_OUT``).
 
     python scripts/docs/machine_view.py runs/machine/view/report/events.jsonl \
-        docs/assets/machine.jpg
+        docs/assets/machine.jpg --capacity 384
 """
 
 import argparse
