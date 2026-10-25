@@ -211,7 +211,28 @@ engines = {
 ```
 
 `runs` is the entry the host runs, with its settings: the lane takes its adapter, batching and
-lane options ([engines on other nodes](../internals/engine-host.md)).
+lane options ([engines in other processes](../internals/engine-host.md)).
+
+## Engines in processes of their own
+
+`engines["hosts"]` starts engine hosts with the machine, each with its environment (a card) and
+the slots it serves; `remote` entries name them, and the lane takes each slot's adapter,
+batching and lane options from its host. Payloads cross in shared memory by default
+(`transport`: `shm` or `inband`).
+
+```python
+engines = {
+    "hosts": {
+        "card0": {"env": {"CUDA_VISIBLE_DEVICES": 0}, "engines": {"vlm": {...}, "detect": {...}}},
+        "card1": {"env": {"CUDA_VISIBLE_DEVICES": 1}, "engines": {"vlm": {...}, "detect": {...}}},
+    },
+    "vlm": {"entry": "remote", "hosts": ["card0", "card1"]},
+    "detect": {"entry": "remote", "hosts": ["card0", "card1"]},
+}
+```
+
+`configs/machine/qwen35_card.py` hosts its engines this way (`GBC_HOSTING=process`, the
+default; `inprocess` keeps them in the machine's process).
 
 ## CPU workers
 

@@ -6,8 +6,9 @@
 #   machine over several cards.
 # Measured (mid + sam3 controls; docs/performance/flagship.md):
 #   RTX 5090, 1200 COCO images: FP8-GDN checkpoint, GBC_VLM_UTIL=0.75, GBC_VLM_LANES=384,
-#     PhasedScheduler with KOHAKU_PREFILL_EVERY=16, this file's SAM 3 and admission defaults:
-#     2.00 img/s, job p50 42 s, GPU 97% busy at its power cap.
+#     PhasedScheduler with KOHAKU_PREFILL_EVERY=16, this file's SAM 3 and admission defaults,
+#     engines in a host per card: 2.06 img/s, job p50 41 s, GPU 98% busy at its power cap; four
+#     cards (GBC_CARDS=0,1,2,3, 4800 images) 8.17 img/s, job p50 42 s.
 #   RTX 3090, 480 images (SAM 3 with 4 crops, eager vision, admission by the VLM lane alone):
 #     SmoothQuant INT8 checkpoint, GBC_VLM_UTIL=0.72, GBC_VLM_LANES=128, same scheduler: 0.41
 #     img/s, bound by KV-cache capacity.
@@ -161,7 +162,7 @@ _HTTP = {
     "lane": _VLM_LANE,
 }
 
-engines = {
+_ENGINES = {
     "vlm": _HTTP if _URL else _INPROCESS,
     "detect": {
         "entry": "torch",
@@ -189,6 +190,59 @@ engines = {
     },
     "cpu": {"entry": "python", "workers": 8},
 }
+
+
+def _on_card(slot: str) -> dict:
+    """A slot's settings in a host that sees one card (as ``cuda:0``)."""
+    s = dict(_ENGINES[slot])
+    if slot == "vlm":
+        return {**s, "units": 1, "devices": None}
+    return {**s, "devices": ["cuda:0"]}
+
+
+# GBC_HOSTING: process (the default): the machine's process holds connectors only, every engine
+#   in an engine host that sees one card (CUDA_VISIBLE_DEVICES); inprocess: every engine in the
+#   machine's process. GBC_HOST_LAYOUT (process): card (the default): one host per card for all
+#   its engines (card<c>), the in-process machine's memory per card; split: one host for the VLM
+#   (vlm<c>) and one for SAM 3 and EmbeddingGemma (aux<c>, loading after vlm<c>), one more CUDA
+#   context per card: on the RTX 5090 at GBC_VLM_KV_GB=12 the aux host misses by 32 MiB.
+_HOSTING = os.environ.get("GBC_HOSTING", "process")
+_LAYOUT = os.environ.get("GBC_HOST_LAYOUT", "card")
+if _HOSTING not in ("process", "inprocess") or _LAYOUT not in ("card", "split"):
+    raise ValueError(f"GBC_HOSTING={_HOSTING!r} (process, inprocess), GBC_HOST_LAYOUT={_LAYOUT!r}")
+engines = _ENGINES
+if _HOSTING == "process" and not _URL:
+    _hosts, _refs = {}, {"vlm": [], "detect": [], "embed": []}
+    for _c in dict.fromkeys(_VLM_CARDS + _AUX_CARDS):
+        _env = {"CUDA_VISIBLE_DEVICES": _c}
+        _slots = ["vlm"] if _c in _VLM_CARDS else []
+        _slots += ["detect", "embed"] if _c in _AUX_CARDS else []
+        if _LAYOUT == "card":
+            # vLLM refuses to start below GBC_VLM_UTIL of the card free: the VLM loads first
+            _hosts[f"card{_c}"] = {
+                "env": _env,
+                "engines": {s: _on_card(s) for s in _slots},
+                "order": [["vlm"], ["detect", "embed"]],
+            }
+            for _s in _slots:
+                _refs[_s].append(f"card{_c}")
+            continue
+        if "vlm" in _slots:
+            _hosts[f"vlm{_c}"] = {"env": _env, "engines": {"vlm": _on_card("vlm")}}
+            _refs["vlm"].append(f"vlm{_c}")
+        if "detect" in _slots:
+            # vLLM refuses to start below GBC_VLM_UTIL of the card free: the card's VLM first
+            _aux = {"detect": _on_card("detect"), "embed": _on_card("embed")}
+            _after = [f"vlm{_c}"] if "vlm" in _slots else []
+            _hosts[f"aux{_c}"] = {"env": _env, "engines": _aux, "after": _after}
+            _refs["detect"].append(f"aux{_c}")
+            _refs["embed"].append(f"aux{_c}")
+    engines = {
+        "hosts": _hosts,
+        **{s: {"entry": "remote", "hosts": refs} for s, refs in _refs.items()},
+        "cpu": _ENGINES["cpu"],
+    }
+
 machine = {
     "vlm_waiting": int(os.environ.get("GBC_VLM_WAITING", str(_LANES * _N))),
     "waiting": _WAITING,

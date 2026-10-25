@@ -373,9 +373,11 @@ One portrait image on the same GPU: 34 s with OWLv2, 79 s with transformers' SAM
 fills with SAM 3 beside the VLM).
 
 **The machine on one RTX 5090** (`configs/machine/qwen35_card.py`, 1200 COCO images, everything
-on the card; [flagship](docs/performance/flagship.md)): 2.00 img/s with each image 42 s in the
-machine at the median (75 s p99), the card at its power cap; the same throughput and latency
-however long the source runs.
+on the card; [flagship](docs/performance/flagship.md)): 2.06 img/s with each image 41 s in the
+machine at the median (87 s p99), the card at its power cap; the same throughput and latency
+however long the source runs. The engines run in an engine host process per card and the
+machine's process holds connectors only: one machine over four cards gives 8.17 img/s, each
+image still 42 s at the median.
 
 **The detector and the embedder** (GBC's own SAM 3 and EmbeddingGemma; 45 recorded detector
 requests through the detect engine, 925 names; [six GPUs and the CPU](docs/performance/detector.md)):

@@ -44,6 +44,25 @@ the VLM falls to 100 lanes in flight and img/s with it. `GBC_ADMISSION=stream` (
 holds 96 images per card, `GBC_ADMISSION=batch` 512 (a long offline run, where the tail is
 negligible).
 
+## Engines in host processes
+
+The same configuration (96 resident, Togeari telemetry on) with every engine in an engine host
+process per card (`GBC_HOSTING=process`, the default: the machine's process holds connectors
+only, [engine hosts](../internals/engine-host.md)) against every engine in the machine's
+process:
+
+| Engines | Cards | Images | img/s | Job s p50 / p90 / p99 | Detect queued | GPU busy |
+|---|---|---|---|---|---|---|
+| in the machine's process | 1 | 1200 | 1.886 | 44 / 58 / 71 | 61 | 97.2% |
+| **one host per card** | 1 | 1200 | **2.061** | 41 / 71 / 87 | 14 | 98.1% |
+| **one host per card** | 4 | 4800 | **8.165** | 42 / 67 / 84 | 34 | 96.2-97.8% |
+
+Both one-card runs make the same engine calls (16.5k VLM, 11.1k detector, 12.1k embedder): the
+dispatcher no longer shares its process's GIL with vLLM's frontend and SAM 3's preparation, and
+the detector's queue drains (61 to 14 requests). One machine over four cards gives 3.96x one
+card, its job times unchanged; loading takes 130 s (91 s in-process: SAM 3 and EmbeddingGemma
+load after the card's VLM).
+
 ## Four RTX 5090s, the best configuration
 
 In-process VLM, KohakuvLLM's PhasedScheduler (prefill every 16 steps), KohakuvLLM's grammar

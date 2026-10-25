@@ -12,6 +12,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from kohakugbc.engines import spawn
+
 SLOTS = ("vlm", "detect", "embed", "cpu")
 NODES = {"vlm": "chat", "detect": "detector", "embed": "embedder"}
 
@@ -66,8 +68,12 @@ def build_slot(slot: str, settings: dict | None, shared: dict) -> Slot:
 
 
 def build(engines: dict) -> dict[str, Slot]:
-    """Every slot's ``Slot`` from the engine configuration; every problem in one error."""
+    """Every slot's ``Slot`` from the engine configuration; every problem in one error.
+    ``engines["hosts"]`` (name -> ``{"env", "engines"}``): engine host processes started
+    first, all at once, for the slots' ``remote`` entries to name."""
     shared: dict = {}
+    if engines.get("hosts"):
+        shared["hosts"] = spawn.launch_all(engines["hosts"])
     problems, out = [], {}
     for slot in SLOTS:
         try:

@@ -16,7 +16,7 @@ import logging
 import torch
 
 from kohakugbc_models.kernels import tuning
-from kohakugbc_models.kernels.hardware import QUIET
+from kohakugbc_models.kernels.hardware import QUIET, capture_stream
 
 log = logging.getLogger(__name__)
 
@@ -38,14 +38,17 @@ class Graphs:
     def capture(self, inputs: tuple) -> tuple:
         static = tuple(t.clone() for t in inputs)
         with QUIET, tuning.metric("graph"):
-            side = torch.cuda.Stream()
+            # The device's capture stream: torch's default one is one per process, on one card
+            side = capture_stream()
             side.wait_stream(torch.cuda.current_stream())
             with torch.cuda.stream(side):
                 self.fn(*static)
             torch.cuda.current_stream().wait_stream(side)
             graph = torch.cuda.CUDAGraph()
             # thread_local: other models' threads keep launching on their own streams
-            with torch.cuda.graph(graph, pool=self.pool, capture_error_mode="thread_local"):
+            with torch.cuda.graph(
+                graph, pool=self.pool, stream=side, capture_error_mode="thread_local"
+            ):
                 outputs = self.fn(*static)
         return graph, static, outputs
 

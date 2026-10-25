@@ -1,22 +1,25 @@
-"""Engines on other nodes: the engine host serves a slot's units over the network; the
+"""Engines in other processes: the engine host serves slots' units (``gbc host``); the
 ``remote`` entry makes each a unit of the machine's lane (``RemoteUnit``).
 
-Settings of the ``remote`` entry: ``hosts`` (``"host:port/unit"`` per unit), ``authkey`` or
-``authkey_env`` (the environment variable that holds it), and either ``runs`` (the entry the
-hosts run, with its settings: the lane takes its adapter, former and lane options; it must be
-buildable here) or, for units only the host's node can build, ``adapter`` (a name in
-``kohakugbc.engines.adapters.ADAPTERS``), ``kind`` (``stream``, ``batch`` or ``call``),
-``protocol``, ``max_batch`` and ``wait_ms`` (batch lanes).
+``remote`` settings: ``hosts``, per item ``"host:port/unit"`` (a running ``gbc host``) or the
+name of an engine configuration host (``kohakugbc.engines.spawn``: every unit it serves for this
+slot, with its slot's adapter, former and lane options); ``transport`` (``inband``, or ``shm``
+on one node: spawned hosts' default); ``start_timeout_s`` (1800). Addresses also take
+``authkey`` or ``authkey_env``, and ``runs`` (the hosted entry's settings, buildable here) or
+``adapter`` (``ADAPTERS``), ``kind``, ``protocol``, ``max_batch``, ``wait_ms``.
 """
 
 import os
+from dataclasses import dataclass, field
+from functools import partial
 
 from togeari.policies import SizeOrWait
 
-from kohakugbc.engines import registry
+from kohakugbc.engines import placement, registry
 from kohakugbc.engines.adapters import ADAPTERS
 from kohakugbc.engines.host.host import EngineHost
 from kohakugbc.engines.host.remote import RemoteUnit
+from kohakugbc.engines.spawn import HostProcess
 
 
 def authkey(settings: dict) -> bytes:
@@ -26,6 +29,40 @@ def authkey(settings: dict) -> bytes:
     if env not in os.environ:
         raise ValueError(f"no authkey: set {env} or give authkey")
     return os.environ[env].encode()
+
+
+@dataclass
+class Served:
+    """What a host serves: its units, each unit's slot shape, unit names and shape per slot."""
+
+    units: list = field(default_factory=list)
+    shapes: dict = field(default_factory=dict)
+    by_slot: dict = field(default_factory=dict)
+    slot_shapes: dict = field(default_factory=dict)
+
+
+def serve(engines: dict) -> Served:
+    """The units of ``engines`` (slot -> entry settings) for a host, built as the machine builds
+    them (one ``shared`` for all), their placement checked on this process's devices."""
+    shared: dict = {}
+    out, needs = Served(), []
+    for slot, settings in engines.items():
+        built = registry.build_slot(slot, settings, shared)
+        shape = {
+            "adapter": built.adapter,
+            "former": built.former,
+            "select": built.select,
+            "lane": built.lane,
+            "call": built.call,
+        }
+        out.units += built.units
+        out.by_slot[slot] = [u.name for u in built.units]
+        out.slot_shapes[slot] = shape
+        for u in built.units:
+            out.shapes[u.name] = shape
+        needs += built.needs
+    placement.check(needs)
+    return out
 
 
 def _like(settings: dict, slot: str, shared: dict) -> tuple[registry.Slot, str, int, str]:
@@ -47,24 +84,83 @@ def _like(settings: dict, slot: str, shared: dict) -> tuple[registry.Slot, str, 
     return like, kind, max_batch, protocol
 
 
+def _started(host: HostProcess):
+    def on_start(unit: str, error: str | None) -> None:
+        if error is None:
+            host.unit_up(unit)
+        else:
+            host.unit_failed(unit, error)
+
+    return on_start
+
+
+def _spawned_units(slot: str, name: str, host: HostProcess, settings: dict) -> list:
+    """The remote units of a spawned host's units of ``slot``, each described by the host."""
+    names = host.units.get(slot)
+    if not names:
+        raise ValueError(f"host {name!r} serves no {slot} units (it serves {sorted(host.units)})")
+    out = []
+    for i, unit in enumerate(names):
+        probe = RemoteUnit(None, host.authkey, kind="?", unit=unit, locate=host.locate)
+        info = probe.describe()
+        out.append(
+            RemoteUnit(
+                None,
+                host.authkey,
+                kind=info["kind"],
+                max_batch=info["max_batch"],
+                protocol=info["protocol"],
+                name=f"{slot}@{name}" if len(names) == 1 else f"{slot}{i}@{name}",
+                transport=settings.get("transport", "shm"),
+                unit=unit,
+                locate=host.locate,
+                manage=True,
+                start_timeout_s=float(settings.get("start_timeout_s", 1800.0)),
+                before_start=partial(host.wait_after, slot=slot),
+                on_start=_started(host),
+            )
+        )
+    return out
+
+
 def _remote(slot: str):
     def factory(settings: dict, shared: dict) -> registry.Slot:
-        like, kind, max_batch, protocol = _like(settings, slot, shared)
-        lane = dict(like.lane)
-        key = authkey(settings)
-        units = [
-            RemoteUnit(
-                address,
-                key,
-                kind=kind,
-                max_batch=max_batch,
-                protocol=protocol,
-                name=f"remote-{slot}-{i}",
+        spawned = shared.get("hosts", {})
+        refs = list(settings["hosts"])
+        units, shape = [], None
+        for i, ref in enumerate(refs):
+            if ref in spawned:
+                units += _spawned_units(slot, ref, spawned[ref], settings)
+                shape = shape or spawned[ref].shapes[slot]
+                continue
+            if ":" not in ref:
+                raise ValueError(f"hosts: {ref!r} is neither host:port/unit nor a spawned host")
+            like, kind, max_batch, protocol = _like(settings, slot, shared)
+            units.append(
+                RemoteUnit(
+                    ref,
+                    authkey(settings),
+                    kind=kind,
+                    max_batch=max_batch,
+                    protocol=protocol,
+                    name=f"remote-{slot}-{i}",
+                    transport=settings.get("transport", "inband"),
+                )
             )
-            for i, address in enumerate(settings["hosts"])
-        ]
+            shape = shape or {
+                "adapter": like.adapter,
+                "former": like.former,
+                "select": like.select,
+                "lane": like.lane,
+                "call": like.call,
+            }
         return registry.Slot(
-            units=units, former=like.former, select=like.select, adapter=like.adapter, lane=lane
+            units=units,
+            former=shape["former"],
+            select=shape["select"],
+            adapter=shape["adapter"],
+            call=shape["call"],
+            lane=dict(shape["lane"]),
         )
 
     return factory
@@ -73,4 +169,4 @@ def _remote(slot: str):
 for _slot in ("vlm", "detect", "embed", "cpu"):
     registry.entry(_slot, "remote")(_remote(_slot))
 
-__all__ = ["EngineHost", "RemoteUnit", "authkey"]
+__all__ = ["EngineHost", "HostProcess", "RemoteUnit", "Served", "authkey", "serve"]

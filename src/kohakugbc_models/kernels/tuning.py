@@ -31,7 +31,13 @@ from pathlib import Path
 import torch
 
 from kohakugbc_models.kernels.errors import ConfigsFailed, is_backend_failure
-from kohakugbc_models.kernels.hardware import QUIET, cache_dir, card_key, synchronize
+from kohakugbc_models.kernels.hardware import (
+    QUIET,
+    cache_dir,
+    capture_stream,
+    card_key,
+    synchronize,
+)
 
 WORKING_FACTOR = 8.0
 WORKING_FLOOR = 256 << 20
@@ -121,7 +127,7 @@ def graph_ms(fn: Callable[[], object], device, calls: int) -> float:
         fn()
     synchronize(device)
     graph = torch.cuda.CUDAGraph()
-    with torch.cuda.graph(graph, capture_error_mode="thread_local"):
+    with torch.cuda.graph(graph, stream=capture_stream(device), capture_error_mode="thread_local"):
         for _ in range(calls):
             fn()
     best = float("inf")

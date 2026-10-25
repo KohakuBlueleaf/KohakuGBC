@@ -2,15 +2,21 @@
 
 gbc run CONFIG [CONFIG ...]     build the machine from configuration layers and run its source
 gbc check CONFIG [CONFIG ...]   build and check the machine without starting any unit
-gbc host CONFIG ... --slot S    serve the units of slot S's entry to remote units
+gbc host CONFIG ... --slot S    serve the units of slot S's entry (--slot repeats) to remote units
 gbc doctor [CONFIG ...]         versions, devices, entries; a configuration's placement plan
 """
 
 import argparse
+import contextlib
 import json
+import os
+import pickle
+import signal
 import sys
+import threading
 import time
 from importlib import metadata
+from pathlib import Path
 
 from togeari import no_unit_start
 
@@ -43,14 +49,31 @@ def check(layers: list[str]) -> int:
     return 0
 
 
-def host(layers: list[str], slot: str, listen: str, authkey_env: str) -> int:
-    """Serve the units of one slot's entry (from the configuration) to remote units."""
-    cfg = config.load(*layers)
-    units = registry.build_slot(slot, cfg["engines"].get(slot), {}).units
-    address, _ = wire.address(listen)
-    server = EngineHost(units, address, engine_host.authkey({"authkey_env": authkey_env}))
+def host(args) -> int:
+    """Serve the units of slots' entries to remote units: ``--slot`` names slots of the
+    configuration, or ``--engines-file`` holds the slots' settings (pickled)."""
+    if args.engines_file:
+        engines = pickle.loads(Path(args.engines_file).read_bytes())
+    else:
+        if not args.configs or not args.slot:
+            print("gbc host: CONFIG ... --slot S, or --engines-file", file=sys.stderr)
+            return 2
+        cfg = config.load(*args.configs)
+        engines = {s: cfg["engines"].get(s) for s in args.slot}
+    served = engine_host.serve(engines)
+    address, _ = wire.address(args.listen)
+    key = engine_host.authkey({"authkey_env": args.authkey_env})
+    server = EngineHost(served.units, address, key, shapes=served.shapes, lazy=args.lazy)
     bound = server.start()
-    print(f"serving {[u.name for u in units]} at {bound[0]}:{bound[1]}", flush=True)
+    if args.ready_file:
+        ready = Path(args.ready_file)
+        info = {"address": bound, "units": served.by_slot, "shapes": served.slot_shapes}
+        ready.with_suffix(".tmp").write_bytes(pickle.dumps(info))
+        ready.with_suffix(".tmp").replace(ready)
+    print(f"serving {[u.name for u in served.units]} at {bound[0]}:{bound[1]}", flush=True)
+    if args.watch_stdin:
+        threading.Thread(target=_until_stdin_closes, args=(server,), daemon=True).start()
+    signal.signal(signal.SIGTERM, _interrupt)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -58,6 +81,19 @@ def host(layers: list[str], slot: str, listen: str, authkey_env: str) -> int:
     finally:
         server.stop()
     return 0
+
+
+def _interrupt(signum, frame) -> None:
+    raise KeyboardInterrupt
+
+
+def _until_stdin_closes(server) -> None:
+    """Stop the host when its stdin ends (the process that started it ended). The descriptor
+    is read raw: a thread blocked in the buffered reader aborts the interpreter's exit."""
+    with contextlib.suppress(OSError, ValueError):
+        while os.read(sys.stdin.fileno(), 4096):
+            pass
+    server.stopping.set()
 
 
 def doctor(layers: list[str]) -> int:
@@ -110,9 +146,13 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("run", "check", "host", "doctor"):
         p = sub.add_parser(name)
-        p.add_argument("configs", nargs="*" if name == "doctor" else "+")
+        p.add_argument("configs", nargs="*" if name in ("doctor", "host") else "+")
         if name == "host":
-            p.add_argument("--slot", required=True, choices=registry.SLOTS)
+            p.add_argument("--slot", action="append", choices=registry.SLOTS)
+            p.add_argument("--engines-file")
+            p.add_argument("--ready-file")
+            p.add_argument("--lazy", action="store_true")
+            p.add_argument("--watch-stdin", action="store_true")
             p.add_argument("--listen", default="127.0.0.1:7501")
             p.add_argument("--authkey-env", default="KOHAKUGBC_HOST_KEY")
     args = parser.parse_args(argv)
@@ -122,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
         case "check":
             return check(args.configs)
         case "host":
-            return host(args.configs, args.slot, args.listen, args.authkey_env)
+            return host(args)
         case "doctor":
             return doctor(args.configs)
     return 2

@@ -11,6 +11,20 @@ import torch
 
 # A host sync in another thread invalidates a CUDA graph capture; re-entrant (a warm-up tunes)
 QUIET = threading.RLock()
+_CAPTURE: dict[int, torch.cuda.Stream] = {}
+
+
+def capture_stream(device=None) -> "torch.cuda.Stream":
+    """The one stream every CUDA graph capture on ``device`` (the current device by default)
+    runs on: the caching allocator reuses a graph pool's freed blocks only on the stream that
+    freed them, so captures sharing a pool on fresh streams each would hold the sum of their
+    passes. Captures run one at a time (``QUIET``), so one stream per device never overlaps."""
+    device = torch.device("cuda") if device is None else torch.device(device)
+    index = torch.cuda.current_device() if device.index is None else device.index
+    with QUIET:
+        if index not in _CAPTURE:
+            _CAPTURE[index] = torch.cuda.Stream(index)
+        return _CAPTURE[index]
 
 
 def arch_of(device) -> str:
