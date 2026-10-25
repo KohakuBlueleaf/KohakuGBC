@@ -9,7 +9,40 @@ load, power, memory and host CPU beside the run). The KV cache is fixed per card
 12 GiB on the 5090, 6 GiB on the 3090) so every cell holds the same cache; cells compared with
 each other ran in one window on different cards of one box, rotated over the cards where the
 cards differ. KohakuvLLM is
-[github.com/KohakuBlueleaf/KohakuvLLM](https://github.com/KohakuBlueleaf/KohakuvLLM).
+[github.com/KohakuBlueleaf/KohakuvLLM](https://github.com/KohakuBlueleaf/KohakuvLLM). The
+sections from "Four RTX 5090s" on ran SAM 3 with fp8 row, 4 crops per vision pass, its vision
+encoder eager, and admission bounded only by the VLM lane; the configuration's defaults are the
+first section's bold row.
+
+## An endless source on one RTX 5090
+
+1200 COCO val2017 images through the machine on card 3 (KohakuvLLM's scheduler and grammar, INT8
+GDN state, 384 lanes, KV 12 GiB). Job seconds are each image's time from admission to its graph;
+the tail runs from the last image's admission to the end.
+
+| SAM 3 | Admission | img/s | Job s p50 / p99 | VLM in flight | Tail |
+|---|---|---|---|---|---|
+| row, 4 crops, eager vision | VLM lane only (512 resident) | 1.507 | 326 / 355 | 46 | 314 s |
+| mx, 8 crops, eager vision | VLM lane only | 1.619 | 302 / 330 | 55 | 294 s |
+| mx, 8 crops, vision graph | VLM lane only | 2.006 | 228 / 295 | 235 | 233 s |
+| mx, 8 crops, vision graph | + detect 32, 256 resident | 1.912 | 92 / 161 | 167 | 32 s |
+| mx, 8 crops, vision graph | + detect 32, 192 resident | 1.909 | 72 / 121 | 158 | 80 s |
+| mx, 8 crops, vision graph | + detect 32, 128 resident | 1.941 | 55 / 90 | 150 | 49 s |
+| mx, 8 crops, vision graph | + detect 32, **96 resident** | **2.001** | **42 / 75** | 157 | 22 s |
+| mx, 8 crops, vision graph | + detect 32, 64 resident | 1.880 | 30 / 55 | 100 | 26 s |
+
+With only the VLM lane gating admission, every image of the run is admitted at once and waits
+at the detector: 455 detect requests queued, the VLM 46 of 384 lanes busy after the first
+minute. The vision CUDA graph is level for SAM 3 alone ([detector](detector.md)) but +24% here:
+SAM 3's thread no longer launches the ViT's kernels beside the in-process vLLM. Bounding the
+resident images bounds each image's time and the tail: at 192 resident, 600 images give job p50
+74 s and a 70 s tail, 1200 give 72 s and 80 s; with the VLM lane alone, job p50 grows from 175 s
+(600 images) to 228 s (1200). The
+card is power-bound (96-97% busy at 580-590 W) in every row: from 96 resident images up, img/s
+moves within the run-to-run noise (3-7%) while the time in the machine grows with the cap; at 64
+the VLM falls to 100 lanes in flight and img/s with it. `GBC_ADMISSION=stream` (the default)
+holds 96 images per card, `GBC_ADMISSION=batch` 512 (a long offline run, where the tail is
+negligible).
 
 ## Four RTX 5090s, the best configuration
 

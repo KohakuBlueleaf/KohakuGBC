@@ -141,10 +141,12 @@ text encoder replayed from CUDA graphs. 2.3x transformers' model through the eng
 | Setting | Meaning |
 |---|---|
 | `dtype` | `"auto"` (bfloat16 on sm80+, float16 before) |
-| `max_pairs`, `max_crops` | (crop, text) pairs per fusion pass (16), crops per vision pass (4) |
+| `max_pairs`, `max_crops` | (crop, text) pairs per fusion pass (16), crops per vision pass (4; at most `max_batch`) |
+| `vision_graph` | the vision encoder replayed from CUDA graphs, one per crop count up to `max_crops`, captured at load in one memory pool with the fusion and text graphs (false; exclusive with `vision_compile`) |
+| `priority` | the model's CUDA stream priority under the torch engine's `priority_streams` schedule (`engine: {"schedule": ...}`); beside in-process vLLM on an RTX 5090 that schedule locked the card |
 | `box_source` | `pred` (the predicted boxes), `mask` (the mask's box on its 288 grid, in one kernel, no logits written), `mask_full` (the mask resized to the crop first); `mask_threshold` 0.5 |
 | `kernels`, `fusion_graph`, `fusion_buckets`, `text_graph` | the kernel registry's ops (true), the fusion pass replayed from CUDA graphs (true) per `exact` pass size (or `pow2`: fewer graphs, padded passes), the text encoder replayed (true) |
-| `fp8`, `fp8_encoder` | the ViT's linears in fp8: `row` (sm89+) or `mx` (sm100+); the DETR encoder's MLPs too (measured inside the noise: off) |
+| `fp8`, `fp8_encoder` | the ViT's linears in fp8: `row` (sm89+), `mx` (sm100+) or `auto` (mx where supported, else row, else none); the DETR encoder's MLPs too (measured inside the noise: off) |
 | `text_device` | `"cpu"`: the text encoder in float32 on the host (0.66 GiB less on the device; the cache serves repeated texts) |
 | `text_cache` | texts whose features are kept (4096, least recently used dropped) |
 | `budget_gb` | fit `max_pairs` / `max_crops` within this many GiB from the card's measured memory plan (`scripts/bench/detector/memory.py`); `memory_gb` defaults to the plan's estimate |

@@ -1,7 +1,8 @@
 """SAM 3's device memory plan on this card (``kohakugbc_models.detect.sam3.memory``): resident
 bytes, the vision pass's working bytes per crop count, the fusion pass's per pair count, the bytes
 the graph pools and the text cache keep, fitted linearly and stored for the engine. One plan per
-``--fp8`` x ``--text-device``; also writes ``<out>/memory-<card>.json`` / ``.md`` with every
+``--fp8`` x ``--text-device`` x ``--vision`` (with ``graph`` the vision pool is captured at load,
+so it counts as resident); also writes ``<out>/memory-<card>.json`` / ``.md`` with every
 measured point.
 
     python scripts/bench/detector/memory.py --graphs G --image I --out OUT --fp8 none row
@@ -42,10 +43,12 @@ def fitted(points: dict) -> tuple:
     return int(max(base, 0)), int(max(slope, 0))
 
 
-def measure(args, recipe: str, text_device: str, requests: list) -> dict:
+def measure(args, recipe: str, text_device: str, graphed: str, requests: list) -> dict:
     device = args.device
+    vision_graph = graphed == "graph"
     det = Sam3Detector(
         args.model,
+        vision_graph=vision_graph,
         box_source=args.box_source,
         max_pairs=max(args.pairs),
         max_crops=max(args.crops),
@@ -87,6 +90,7 @@ def measure(args, recipe: str, text_device: str, requests: list) -> dict:
             "fp8": recipe,
             "text_device": text_device,
             "box_source": args.box_source,
+            "vision_graph": vision_graph,
         },
         resident=resident,
         vision_base=vision_base,
@@ -101,6 +105,7 @@ def measure(args, recipe: str, text_device: str, requests: list) -> dict:
         None if recipe == "none" else recipe,
         None if text_device == "device" else text_device,
         args.box_source,
+        vision_graph,
     )
     memory.save(plan, device, name)
     row = {
@@ -157,12 +162,18 @@ def main() -> int:
     parser.add_argument("--box-source", default="pred")
     parser.add_argument("--fp8", nargs="+", default=["none"])
     parser.add_argument("--text-device", nargs="+", default=["device", "cpu"])
+    parser.add_argument("--vision", nargs="+", default=["eager"], choices=["eager", "graph"])
     parser.add_argument("--crops", type=int, nargs="+", default=[1, 2, 4])
     parser.add_argument("--pairs", type=int, nargs="+", default=[1, 2, 4, 8, 16])
     args = parser.parse_args()
 
     requests = graph_file_requests(args.graphs, args.image)
-    rows = [measure(args, r, t, requests) for r in args.fp8 for t in args.text_device]
+    rows = [
+        measure(args, r, t, v, requests)
+        for r in args.fp8
+        for t in args.text_device
+        for v in args.vision
+    ]
     card = card_key(args.device)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

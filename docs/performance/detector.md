@@ -44,7 +44,28 @@ graphs, and fp8 where the GPU has it.
 | V100 | 7533 | 6848 | 5309 | |
 | PG503 | 7991 | 7451 | 5709 | |
 
-fp8 is opt-in (`fp8: "row" | "mx"`): it doubles the bf16 logits' error against fp64 (below).
+`fp8: "auto"` takes mx on sm100+ and row on sm89 (none below); it doubles the bf16 logits' error
+against fp64 (below). The flagship card config uses `auto`.
+
+## SAM 3 on a machine run's requests (RTX 5090)
+
+`scripts/bench/detector/record.py` records the detect requests (crops and texts) of a machine run
+of the GBC program; `native.py --recorded` runs SAM 3 alone over them, prepared outside the timer
+and with the text cache warm. 240 COCO images gave 2189 requests (9.1 per image); 400 of them, ms
+per request:
+
+| fp8 | crops per vision pass | batch | ms / request |
+| --- | --- | --- | --- |
+| row | 4 | 8 | 22.5 |
+| mx | 8 | 8 | 20.7 |
+| mx | 16 / 32 | 16 / 32 | 23.9-24.8 |
+
+The vision encoder is 78% of the time, about 15.7 ms per crop; replaying it from CUDA graphs
+(`vision_graph`) leaves SAM 3 alone level, and is worth 24% of the whole machine's img/s
+([flagship](flagship.md)): there SAM 3's host thread no longer launches the ViT's kernels
+beside vLLM's. A graph replay equals eager run on the graph-tuned kernels bit for bit. The
+vision features' error against fp32 (abs mean / p99, features of RMS 0.71): bf16 0.0185 /
+0.127, row 0.0573 / 0.361, mx 0.0603 / 0.378.
 
 ## Precision
 

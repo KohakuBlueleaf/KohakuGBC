@@ -2,7 +2,7 @@
 
 ``build(*layers)`` returns ``(machine, source, sink)`` (Togeari's machine-module contract): one
 lane per engine slot from the configuration's entries, the bindings, admission that keeps the
-VLM lane full, oldest-job-first issue.
+VLM lane full and every limited lane's backlog bounded, oldest-job-first issue.
 """
 
 from dataclasses import dataclass
@@ -101,6 +101,30 @@ def store_of(spec):
     return spec
 
 
+def admission_of(lanes: dict, m: dict) -> All:
+    """Admit while the VLM lane holds fewer than ``vlm_waiting`` waiting (its queue and its
+    units' own) and every lane of ``waiting`` ({lane: items}) fewer than its limit, up to
+    ``max_jobs`` resident.
+
+    The limits gate new jobs only: jobs already resident still send their later requests, so a
+    lane's backlog can pass its limit by what they have yet to send. What bounds a job's time in
+    the machine is ``max_jobs``: about ``max_jobs`` / throughput, however long the source. A
+    torch lane's waiting is its queue only (its units report none)."""
+    extra = dict(m.get("waiting") or {})
+    if "vlm" in extra:
+        raise ValueError("machine.waiting: the VLM lane's limit is machine.vlm_waiting")
+    waiting = {"vlm": m["vlm_waiting"], **extra}
+    unknown = sorted(set(waiting) - set(lanes))
+    if unknown:
+        raise ValueError(f"machine.waiting: no lane {unknown} (lanes: {sorted(lanes)})")
+    small = sorted(name for name, n in waiting.items() if int(n) < 1)
+    if small or m["max_jobs"] < 1:
+        raise ValueError(f"admission limits must be at least 1 ({small or 'max_jobs'})")
+    return All(
+        *(TargetLoad(lanes[name], waiting=n, max_jobs=m["max_jobs"]) for name, n in waiting.items())
+    )
+
+
 @dataclass
 class Parts:
     machine: Machine
@@ -147,7 +171,7 @@ def build_parts(*layers) -> Parts:
         entry=ENTRY,
         libraries=[library.build(SlotModels(slots))],
         bind=bindings(lanes, slots, store is not None),
-        admission=All(TargetLoad(lanes["vlm"], waiting=m["vlm_waiting"], max_jobs=m["max_jobs"])),
+        admission=admission_of(lanes, m),
         issue=OldestJobFirst(),
         store=store,
         plugins=plugins,

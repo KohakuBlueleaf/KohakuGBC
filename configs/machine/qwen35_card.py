@@ -2,12 +2,15 @@
 # in-process ``vllm`` entry) or behind a `vllm serve` on the same card (GBC_VLM_URL, the ``api``
 # entry; scripts/bench/machine/serve.py starts that server with the same engine arguments), and
 # GBC's own SAM 3 and EmbeddingGemma on the same card.
-# One machine per card: GBC_CARD picks it, so N processes cover an N-card box.
-# Measured best (480 images, mid + sam3 controls):
-#   RTX 5090: FP8-GDN checkpoint, GBC_VLM_UTIL=0.75, GBC_VLM_LANES=384, GBC_DETECT_BATCH=8,
-#     PhasedScheduler with KOHAKU_PREFILL_EVERY=16: 1.50-1.55 img/s, GPU 96% busy at its power cap.
-#   RTX 3090: SmoothQuant INT8 checkpoint, GBC_VLM_UTIL=0.72, GBC_VLM_LANES=128, GBC_DETECT_BATCH=8,
-#     GBC_DETECT_FP8=none, same scheduler: 0.41 img/s, bound by KV-cache capacity.
+# One machine per card: GBC_CARD picks it, so N processes cover an N-card box; or GBC_CARDS, one
+#   machine over several cards.
+# Measured (mid + sam3 controls; docs/performance/flagship.md):
+#   RTX 5090, 1200 COCO images: FP8-GDN checkpoint, GBC_VLM_UTIL=0.75, GBC_VLM_LANES=384,
+#     PhasedScheduler with KOHAKU_PREFILL_EVERY=16, this file's SAM 3 and admission defaults:
+#     2.00 img/s, job p50 42 s, GPU 97% busy at its power cap.
+#   RTX 3090, 480 images (SAM 3 with 4 crops, eager vision, admission by the VLM lane alone):
+#     SmoothQuant INT8 checkpoint, GBC_VLM_UTIL=0.72, GBC_VLM_LANES=128, same scheduler: 0.41
+#     img/s, bound by KV-cache capacity.
 # GBC_VLM_MODEL: a W8A8 checkpoint with dynamic per-token activations. FP8 on sm89 and up
 #   (RedHatAI/Qwen3.5-4B-FP8-dynamic, or with the GDN projections in FP8 too: +19% requests/s);
 #   INT8 below (KohakuvLLM tools/quantize.py and tools/smooth.py; 1.9x the FP8 checkpoint's
@@ -24,7 +27,17 @@
 #   prefill chunks at attention-block boundaries, and fp8 KV (544-token blocks) runs only a few
 #   requests at once.
 # GBC_DETECT_GB: SAM 3's placement reservation (fp8 row, batch 8 peaks at about 2.5 GB).
-# GBC_DETECT_FP8: SAM 3's ViT linears in fp8, row (sm89 and up) or none.
+# GBC_DETECT_FP8: SAM 3's ViT linears in fp8: auto (mx on sm100+, row on sm89, none below), mx,
+#   row or none. GBC_DETECT_VISION_GRAPH=1: SAM 3's ViT replayed from CUDA graphs, one per crop
+#   count up to GBC_DETECT_CROPS (crops per vision pass, 8; at most GBC_DETECT_BATCH, 8).
+#   GBC_DETECT_SCHEDULE=priority_streams with GBC_DETECT_PRIORITY=N: SAM 3 on a CUDA stream of
+#   priority N, ahead of the VLM's; on the RTX 5090 beside the in-process vLLM it locked the card
+#   (a kernel spinning at 100% busy).
+# Admission: GBC_VLM_WAITING (VLM waiting + queued items, GBC_VLM_LANES per card by default),
+#   GBC_WAITING=lane=items,... (other lanes' limits on new jobs, detect=32 per card by default),
+#   GBC_MAX_JOBS (resident jobs; per card 96 under GBC_ADMISSION=stream, the default, 512 under
+#   batch): a job's time in the machine is about max_jobs / img/s. RTX 5090, 1200 images: 96 jobs
+#   2.00 img/s, job p50 42 s, tail 22 s; 512 jobs 2.01 img/s, p50 228 s, tail 233 s.
 # GBC_VLM_SCHEDULER: a vLLM scheduler class path, e.g. kohakuvllm.sched.phased.PhasedScheduler
 #   (decode-only steps between prefills, KOHAKU_PREFILL_EVERY; vLLM's own by default).
 # GBC_VLM_ATTN: vLLM's attention backend (FLASH_ATTN, FLASHINFER, TRITON_ATTN; vLLM's pick if
@@ -57,14 +70,28 @@ import os
 
 _CARD = int(os.environ.get("GBC_CARD", "0"))
 _AUX = int(os.environ.get("GBC_AUX_CARD", str(_CARD)))
+# GBC_CARDS=0,1,2,3: one machine over those cards, each engine one unit per card (GBC_CARD and
+# GBC_AUX_CARD unused); the admission defaults scale with the card count
+_CARDS = [int(c) for c in os.environ.get("GBC_CARDS", "").split(",") if c]
+_VLM_CARDS = _CARDS or [_CARD]
+_AUX_CARDS = _CARDS or [_AUX]
+_N = len(_VLM_CARDS)
+_ADMISSION = os.environ.get("GBC_ADMISSION", "stream")
+_JOBS_PER_CARD = {"stream": 96, "batch": 512}[_ADMISSION]
 _MM_CACHE = os.environ.get("GBC_VLM_MM_CACHE_GB", "")
 _TIMEOUT = os.environ.get("GBC_VLM_TIMEOUT_S", "")
 _VLM_LANE = {"timeout_s": float(_TIMEOUT)} if _TIMEOUT else {}
 _WAITS = os.environ.get("GBC_WAITS_S", "")
-_OUT = os.environ.get("GBC_OUT", f"runs/machine/qwen35_card{_CARD}")
+_OUT = os.environ.get("GBC_OUT", f"runs/machine/qwen35_card{'-'.join(map(str, _VLM_CARDS))}")
 _LANES = int(os.environ.get("GBC_VLM_LANES", "256"))
 _EVENTS = os.environ.get("GBC_EVENTS", "sampled")
-_DETECT_FP8 = os.environ.get("GBC_DETECT_FP8", "row")
+_DETECT_FP8 = os.environ.get("GBC_DETECT_FP8", "auto")
+_WAITING = dict(
+    (k, int(v))
+    for k, v in (
+        kv.split("=") for kv in os.environ.get("GBC_WAITING", f"detect={32 * _N}").split(",") if kv
+    )
+)
 _SCHEDULER = os.environ.get("GBC_VLM_SCHEDULER", "")
 _GRAPH_MAX = int(os.environ.get("GBC_VLM_GRAPH_MAX", "0"))
 _ATTN = os.environ.get("GBC_VLM_ATTN", "")
@@ -108,7 +135,8 @@ _TOP = ("gpu_memory_utilization", "max_model_len", "max_num_seqs")
 _INPROCESS = {
     "entry": "vllm",
     "model": _VLLM["model"],
-    "devices": [_CARD],
+    "units": _N,
+    "devices": _VLM_CARDS,
     "capacity": _LANES,
     "lane": _VLM_LANE,
     "structured": _STRUCTURED,
@@ -141,16 +169,20 @@ engines = {
         "dtype": os.environ.get("GBC_DETECT_DTYPE", "auto"),
         "fp8": None if _DETECT_FP8 == "none" else _DETECT_FP8,
         "fusion_buckets": "pow2",
-        "devices": [f"cuda:{_AUX}"],
-        "max_batch": int(os.environ.get("GBC_DETECT_BATCH", "4")),
+        "vision_graph": os.environ.get("GBC_DETECT_VISION_GRAPH", "1") == "1",
+        "max_crops": int(os.environ.get("GBC_DETECT_CROPS", "8")),
+        "devices": [f"cuda:{c}" for c in _AUX_CARDS],
+        "max_batch": int(os.environ.get("GBC_DETECT_BATCH", "8")),
         "former": os.environ.get("GBC_DETECT_FORMER", "size"),
         "wait_ms": 5.0,
         "memory_gb": float(os.environ.get("GBC_DETECT_GB", "3.5")),
+        "priority": int(os.environ.get("GBC_DETECT_PRIORITY", "0")),
+        "engine": {"schedule": os.environ.get("GBC_DETECT_SCHEDULE", "co_resident")},
     },
     "embed": {
         "entry": "torch",
         "model": os.environ.get("GBC_EMBED_MODEL", "google/embeddinggemma-300m"),
-        "devices": [f"cuda:{_AUX}"],
+        "devices": [f"cuda:{c}" for c in _AUX_CARDS],
         "max_batch": 64,
         "former": os.environ.get("GBC_EMBED_FORMER", "size"),
         "memory_gb": 1.4,
@@ -158,7 +190,9 @@ engines = {
     "cpu": {"entry": "python", "workers": 8},
 }
 machine = {
-    "vlm_waiting": _LANES,
+    "vlm_waiting": int(os.environ.get("GBC_VLM_WAITING", str(_LANES * _N))),
+    "waiting": _WAITING,
+    "max_jobs": int(os.environ.get("GBC_MAX_JOBS", str(_JOBS_PER_CARD * _N))),
     "report": f"{_OUT}/report",
     "waits": {"every_s": float(_WAITS)} if _WAITS else None,
     "knobs": {"events": _EVENTS},

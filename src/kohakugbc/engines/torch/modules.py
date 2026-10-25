@@ -336,7 +336,8 @@ class NativeSam3Detector:
     ``Sam3Detector``: the crops' pixels made on the host in ``prepare``; each crop's vision
     features once, each unique text once (cached), (crop, text) pairs ``max_pairs`` per fusion
     pass reading their crop's features in place. ``kernels``: the kernel registry's ops;
-    ``fusion_graph`` / ``fusion_buckets``: the fusion pass replayed from CUDA graphs."""
+    ``fusion_graph`` / ``fusion_buckets`` / ``vision_graph``: the fusion and vision passes
+    replayed from CUDA graphs."""
 
     def __init__(
         self,
@@ -359,6 +360,7 @@ class NativeSam3Detector:
         text_device: str | None = None,
         capture: str = "load",
         retry_singular: bool = True,
+        vision_graph: bool = False,
     ):
         self.model_name, self.box_threshold = model_name, box_threshold
         self.max_texts, self.max_batch, self.name = max_texts, max_batch, name
@@ -378,6 +380,7 @@ class NativeSam3Detector:
             text_device=text_device,
             capture=capture,
             max_texts=max_texts * max_batch,
+            vision_graph=vision_graph,
         )
         self.device, self.dtype = "cpu", torch.float32
 
@@ -396,7 +399,7 @@ class NativeSam3Detector:
     def prepare(self, payloads: list) -> dict:
         pixels = None
         if any(p["request"]["texts"] for p in payloads):
-            pixels = self.detector.preprocess([p["patch"] for p in payloads])
+            pixels = self.detector.pin(self.detector.preprocess([p["patch"] for p in payloads]))
         return {"payloads": payloads, "pixels": pixels}
 
     def forward(self, batch: dict) -> list[dict]:

@@ -10,17 +10,22 @@ former's wait), ``former`` (``size``: up to ``max_batch`` requests; ``budget``: 
 ``crops`` (1 per request) and ``pairs`` (its texts) at SAM 3's ``max_crops`` / ``max_pairs``, or
 ``max_batch`` / ``max_batch * max_texts`` for the other detectors; the embedder's ``texts`` and
 ``chars`` at ``max_batch`` / 4 x ``graph_tokens``; a request over a budget runs alone),
-``memory_gb`` (the plan's estimate per device), ``engine``
-(``schedule``, ``isolation``, ``slots``, ``memory_cap_gb``, ``prep_workers``; slots whose models
-share devices, dtype and these settings share one engine). Detector: ``model`` names OWLv2
+``memory_gb`` (the plan's estimate per device), ``priority`` (the model's priority on its
+engine: under ``engine.schedule`` ``priority_streams`` its CUDA stream's, higher first, ahead of
+other work on the card such as the VLM's default streams), ``engine`` (``schedule``,
+``isolation``, ``slots``, ``memory_cap_gb``, ``prep_workers``; slots whose models share
+devices, dtype and these settings share one engine). Detector: ``model`` names OWLv2
 (``google/owlv2-base-patch16-ensemble``, the PoC's) or SAM 3 (``facebook/sam3``, or a
 SAM3-LiteText checkpoint ``vil-uob/sam3-litetext-*``; ``box_source``: ``pred``, ``mask`` or
 ``mask_full``, ``mask_threshold`` 0.5, ``retry_singular`` true: a text no box answers is asked
 again in its singular form); ``box_threshold`` (0.05), ``max_texts`` (16). SAM 3's
 ``impl``: ``auto`` (GBC's own model for ``sam3`` / ``sam3_video`` checkpoints, transformers'
 otherwise), ``native`` (``max_pairs`` 16 pairs per fusion pass, ``max_crops`` 4 crops per vision
-pass, ``text_cache`` 4096, ``kernels`` true, ``fusion_graph`` true, ``fusion_buckets`` ``exact``,
-``text_graph`` true, ``fp8`` (``row`` / ``mx``: the ViT's linears in fp8; none by default),
+pass, at most ``max_batch``, ``text_cache`` 4096, ``kernels`` true, ``fusion_graph`` true,
+``fusion_buckets`` ``exact``, ``text_graph`` true, ``vision_graph`` (the ViT replayed from one
+CUDA graph per crop count; false by default), ``fp8`` (``row`` / ``mx``: the ViT's linears in
+fp8; ``auto``: the fastest the card runs, mx on sm100+, row on sm89, none below; none by
+default),
 ``fp8_encoder`` (the DETR encoder's MLPs too), ``text_device`` (``cpu``: the text encoder on the
 host), ``budget_gb`` (caps fitted from the card's measured memory plan), ``capture`` (``load``:
 every CUDA graph captured at load, other shapes uncaptured; ``lazy``: on first use);
@@ -45,6 +50,7 @@ from kohakugbc.engines.torch.modules import (
     SentenceEmbedder,
 )
 from kohakugbc_models.detect.sam3 import memory
+from kohakugbc_models.detect.sam3.model import fp8_recipe
 
 # Checkpoint model types GBC's own models load (``impl: auto`` picks them for these)
 NATIVE_SAM3 = ("sam3", "sam3_video")
@@ -121,7 +127,7 @@ def _slot(
     placements = placement.devices(settings.get("devices", "auto"))
     dtype = placement.dtype(settings.get("dtype", default_dtype), placements[0])
     engine = _engine(shared, placements, dtype, settings)
-    engine.add_model(name, model, devices=placements)
+    engine.add_model(name, model, priority=int(settings.get("priority", 0)), devices=placements)
     gb = float(settings.get("memory_gb", ESTIMATE_GB.get(model_name(model), 2.0)))
     needs = [
         placement.Need(name, d, int(gb * placement.GIB), "weights and activations")
@@ -149,10 +155,21 @@ def native_sam3(name: str, settings: dict, shared: dict, common: dict) -> Slot:
     first = placement.flat(placements)[0]
     dtype = placement.dtype(settings.get("dtype", "auto"), placements[0])
     box_source = settings.get("box_source", "pred")
-    fp8 = settings.get("fp8")
+    fp8 = fp8_recipe(first, settings.get("fp8"))
     text_device = settings.get("text_device")
-    crops, pairs = int(settings.get("max_crops", 4)), int(settings.get("max_pairs", 16))
-    plan = memory.load(first, memory.plan_name(dtype, fp8, text_device, box_source))
+    vision_graph = bool(settings.get("vision_graph", False))
+    max_batch = int(settings.get("max_batch", 4))
+
+    # A batch holds one crop per request: a vision pass never runs more than max_batch crops
+    crops = min(int(settings.get("max_crops", 4)), max_batch)
+    pairs = int(settings.get("max_pairs", 16))
+    plan_name = memory.plan_name(dtype, fp8, text_device, box_source, vision_graph)
+    plan = memory.load(first, plan_name)
+    if plan is None and settings.get("budget_gb") is not None:
+        raise ValueError(
+            f"SAM 3 budget_gb: no memory plan {plan_name!r} for {first} "
+            "(scripts/bench/detector/memory.py measures it)"
+        )
     if plan is not None and settings.get("budget_gb") is not None:
         fitted = plan.fit(int(float(settings["budget_gb"]) * placement.GIB), crops, pairs)
         if fitted is None:
@@ -160,7 +177,7 @@ def native_sam3(name: str, settings: dict, shared: dict, common: dict) -> Slot:
         crops, pairs = fitted
     model = NativeSam3Detector(
         name,
-        max_batch=int(settings.get("max_batch", 4)),
+        max_batch=max_batch,
         box_source=box_source,
         mask_threshold=float(settings.get("mask_threshold", 0.5)),
         max_pairs=pairs,
@@ -175,6 +192,7 @@ def native_sam3(name: str, settings: dict, shared: dict, common: dict) -> Slot:
         text_device=text_device,
         capture=settings.get("capture", "load"),
         retry_singular=bool(settings.get("retry_singular", True)),
+        vision_graph=vision_graph,
         **common,
     )
     estimate = DEFAULT_SAM3_GB

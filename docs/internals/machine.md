@@ -12,7 +12,7 @@ Layers are dicts or Python files whose lower-case module-level names form one
 | Name | Holds |
 |---|---|
 | `engines` | per slot (`vlm`, `detect`, `embed`, `cpu`): `entry` and the entry's settings |
-| `machine` | `vlm_waiting`, `max_jobs` (admission), `window`, `start_timeout_s` (a unit's start, 600), `record`, `store` (`"memory"`), `report` (a RunReport folder), `waits` (`{"every_s", "limit"}`: why jobs wait, sampled into the report's `waits.jsonl`, `kohakugbc.machine.waits`; about 180 ms of dispatcher time per sample on the RTX 5090 machine), `knobs` (other Togeari knobs) |
+| `machine` | `vlm_waiting`, `waiting`, `max_jobs` (admission), `window`, `start_timeout_s` (a unit's start, 600), `record`, `store` (`"memory"`), `report` (a RunReport folder), `waits` (`{"every_s", "limit"}`: why jobs wait, sampled into the report's `waits.jsonl`, `kohakugbc.machine.waits`; about 180 ms of dispatcher time per sample on the RTX 5090 machine), `knobs` (other Togeari knobs) |
 | `source` | `{"kind": "folder" \| "jsonl" \| "trace", "path": ...}` |
 | `sink` | `{"kind": "memory"}` or `{"kind": "graphs", "path": ...}` |
 | `controls` | defaults under every job's own controls |
@@ -61,9 +61,12 @@ on pseudo engines ([performance](../performance/pseudo-engines.md)).
 | `open_image`, `crop`, `crop_many`, `image_root`, `seeded_root`, `detected`, `entity_record`, `batch_replies`, `coverage_root`, `relational_queries`, `relational_request`, `relational_record`, `to_gbc` | the CPU lane |
 | every other node, `kir.std` | inline |
 
-Admission is `TargetLoad` on the VLM lane (`vlm_waiting`, `max_jobs`): images are admitted while
-the lane's queue and its units' waiting counts are below the target. Issue is
-`OldestJobFirst`.
+Admission is `TargetLoad` on the VLM lane (`vlm_waiting`) and on every lane of `waiting`
+(`{lane: items}`), all under `max_jobs` (`admission_of`): an image is admitted while each lane's
+queue and its units' waiting counts are below its limit and fewer than `max_jobs` images are
+resident. The limits gate new images only; resident images still send their later requests, so
+`max_jobs` is what bounds an image's time in the machine (about `max_jobs` / throughput). Issue
+is `OldestJobFirst`.
 
 ## Checks
 

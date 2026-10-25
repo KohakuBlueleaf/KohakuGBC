@@ -107,13 +107,18 @@ class Sam3Image(nn.Module):
             raise ValueError(f"checkpoint lacks {len(missing)} tensors, e.g. {missing[:5]}")
 
 
+def fp8_recipe(device, fp8_setting: str | None) -> str | None:
+    """The ViT's fp8 recipe for a setting: ``auto`` the fastest ``device`` runs, else as given."""
+    return fp8.best(device) if fp8_setting == "auto" else fp8_setting
+
+
 class FusionGraphs(Graphs):
     """``fuse`` replayed from one CUDA graph per pass size: the boxes, presence and query
     logits come back cloned (rows outlive the next replay), the fused vision and queries as
     the graph's own tensors (read before the next pass)."""
 
-    def __init__(self, fuse):
-        super().__init__(fuse, clone=(2, 3, 4))
+    def __init__(self, fuse, pool=None):
+        super().__init__(fuse, clone=(2, 3, 4), pool=pool)
 
     def __call__(self, *inputs) -> tuple:
         return super().__call__(inputs[0].shape[0], *inputs)
@@ -125,9 +130,11 @@ class FusionGraphs(Graphs):
 class Sam3Detector:
     """``Sam3Image`` with its processor and text cache: what the detect engine calls.
 
-    The vision encoder runs eager or ``torch.compile``d (``vision_compile``: a compile mode).
-    The fusion pass runs eager, ``torch.compile``d (``fusion_compile``) or replayed from CUDA
-    graphs (``fusion_graph``, CUDA only); either of the last two runs each pass at its bucket
+    The vision encoder runs eager, ``torch.compile``d (``vision_compile``: a compile mode) or
+    replayed from CUDA graphs (``vision_graph``, CUDA only: one graph per crop count up to
+    ``max_crops``). The fusion pass runs eager, ``torch.compile``d (``fusion_compile``) or
+    replayed from CUDA graphs (``fusion_graph``, CUDA only); either of the last two runs each
+    pass at its bucket
     (``fusion_buckets``: ``pow2``, padded to the next power of two, at most log2(max_pairs) + 1
     graphs; ``exact``, the pair count itself, up to ``max_pairs`` graphs and no padded work).
     ``text_graph``: the text encoder replayed from CUDA graphs per power-of-two count of new
@@ -135,9 +142,10 @@ class Sam3Detector:
     quantized by the producing norm / GELU / attention; ``fp8_encoder``: the DETR encoder's MLPs
     too (input norm and ReLU emitting fp8). ``text_device``: where the text encoder
     runs (``cpu``: fp32 on the host, its device memory freed; default the model's device).
-    ``capture``: ``load`` captures every fusion bucket and every text count up to ``max_texts``
-    new texts when placed on a CUDA device, then runs other shapes uncaptured; ``lazy`` captures
-    each on its first call.
+    ``capture``: ``load`` captures every vision crop count, fusion bucket and text count up to
+    ``max_texts`` new texts when placed on a CUDA device (largest first, into one memory pool
+    the three graph sets share: their replays run one at a time on the model's stream), then
+    runs other shapes uncaptured; ``lazy`` captures each on its first call.
     """
 
     def __init__(
@@ -158,11 +166,15 @@ class Sam3Detector:
         fp8_encoder: bool = False,
         capture: str = "load",
         max_texts: int = 64,
+        vision_graph: bool = False,
     ):
         if capture not in ("load", "lazy"):
             raise ValueError(f"capture {capture!r}: load or lazy")
         if fusion_compile and fusion_graph:
             raise ValueError("fusion_compile and fusion_graph are exclusive")
+        if vision_compile and vision_graph:
+            raise ValueError("vision_compile and vision_graph are exclusive")
+        self.vision_graph, self.vision_graphs = vision_graph, None
         if fusion_buckets not in ("pow2", "exact"):
             raise ValueError(f"fusion_buckets {fusion_buckets!r}: pow2 or exact")
         self.fusion_buckets, self.vision_compile = fusion_buckets, vision_compile
@@ -219,40 +231,54 @@ class Sam3Detector:
         self.vision = self.model.vision_encoder
         if self.vision_compile:
             self.vision = torch.compile(self.vision, mode=self.vision_compile, dynamic=False)
+        cuda = torch.device(device).type == "cuda"
+        pool = torch.cuda.graph_pool_handle() if cuda else None
+        self.vision_graphs = None
+        if self.vision_graph and cuda:
+            # The features cloned (a crop's outlive the next vision pass); positions are views
+            # of the neck's tables, written by no replay
+            features = tuple(range(0, 2 * len(self.levels), 2))
+            self.vision_graphs = Graphs(self.vision_flat, clone=features, pool=pool)
         self.fuse = self.model.fuse
         if self.fusion_compile:
             self.fuse = torch.compile(self.model.fuse, mode=self.fusion_compile, dynamic=False)
-        if self.fusion_graph and torch.device(device).type == "cuda":
-            self.fuse = FusionGraphs(self.model.fuse)
+        if self.fusion_graph and cuda:
+            self.fuse = FusionGraphs(self.model.fuse, pool=pool)
         self.text_graphs = None
-        if self.text_graph and torch.device(self.text_device or device).type == "cuda":
-            self.text_graphs = Graphs(self.text_features, clone=(0,))
+        text_device = torch.device(self.text_device or device)
+        if self.text_graph and text_device.type == "cuda":
+            shared = pool if text_device == torch.device(device) else None
+            self.text_graphs = Graphs(self.text_features, clone=(0,), pool=shared)
         if self.capture == "load" and not self.parked and torch.device(device).type == "cuda":
             self.capture_all()
 
     def capture_all(self) -> None:
-        """Every crop count's vision pass run once (its ops tuned), every fusion bucket and text
-        count captured, then both graph sets frozen."""
+        """Every crop count's vision pass run once (its ops tuned; captured with
+        ``vision_graph``), every fusion bucket and text count captured, then every graph set
+        frozen. Largest first: a smaller pass reuses the pool blocks a larger one left, so the
+        shared pool holds about the largest pass, not the sum of all."""
         with torch.inference_mode():
             pixels = self.preprocess([np.zeros((64, 64, 3), np.uint8)] * self.max_crops)
-            for n in range(1, self.max_crops + 1):
+            for n in range(self.max_crops, 0, -1):
                 crops = self.encode_pixels(pixels[:n])
+            if self.vision_graphs is not None:
+                self.vision_graphs.freeze()
             tokens = self.processor(text=["object"], return_tensors="pt").to(
                 self.text_device or self.device
             )
             ids, mask = tokens["input_ids"], tokens["attention_mask"]
             if self.text_graphs is not None:
-                n = 1
-                while n <= self.max_texts:
+                n = 1 << (self.max_texts.bit_length() - 1)
+                while n >= 1:
                     many = (ids.expand(n, -1), mask.expand(n, -1))
                     self.text_graphs.warm(tuple(many[0].shape), *many)
-                    n *= 2
+                    n //= 2
                 self.text_graphs.freeze()
             if isinstance(self.fuse, FusionGraphs):
                 text = self.text_features(ids, mask).to(self.device, self.dtype)
                 valid = mask.to(self.device).bool()
                 sizes = {self.bucket(p) for p in range(1, self.max_pairs + 1)}
-                for n in sorted(sizes):
+                for n in sorted(sizes, reverse=True):
                     vision = crops[0][2][None].expand(n, -1, -1, -1).contiguous()
                     pos = self.positions.expand(n, -1, -1, -1)
                     self.fuse.warm(vision, pos, text.expand(n, -1, -1), valid.expand(n, -1))
@@ -282,11 +308,31 @@ class Sam3Detector:
             raise RuntimeError(self.parked)
         out = []
         for start in range(0, len(pixels), self.max_crops):
-            part = pixels[start : start + self.max_crops].to(self.device, self.dtype)
-            levels = self.vision(part, self.levels)
+            # Pinned pixels (``pin``) copy without a host wait
+            part = pixels[start : start + self.max_crops].to(
+                self.device, self.dtype, non_blocking=pixels.is_pinned()
+            )
+            if self.vision_graphs is not None:
+                flat = self.vision_graphs(len(part), part)
+                levels = {lvl: flat[2 * k : 2 * k + 2] for k, lvl in enumerate(self.levels)}
+            else:
+                levels = self.vision(part, self.levels)
             out += [{lvl: feats[i] for lvl, (feats, _) in levels.items()} for i in range(len(part))]
             self.positions = levels[2][1][:1]
         return out
+
+    def pin(self, pixels: torch.Tensor) -> torch.Tensor:
+        """``preprocess``'s pixels in page-locked host memory, on a CUDA model (a prep thread's
+        work, so the forward's copy to the device does not wait on the host)."""
+        if torch.device(self.device).type != "cuda":
+            return pixels
+        return pixels.pin_memory()
+
+    def vision_flat(self, pixels: torch.Tensor) -> tuple:
+        """The vision pass as a flat tuple (features, positions per level, in ``levels`` order),
+        what a CUDA graph returns."""
+        levels = self.model.vision_encoder(pixels, self.levels)
+        return tuple(t for lvl in self.levels for t in levels[lvl])
 
     def encode_images(self, patches: list) -> list[dict]:
         return self.encode_pixels(self.preprocess(patches))

@@ -17,7 +17,8 @@ from kohakugbc.engines.torch.modules import Sam3Detector as Reference  # noqa: E
 from kohakugbc.engines.torch.modules import _rows  # noqa: E402
 from kohakugbc.nodes.images import cut  # noqa: E402
 from kohakugbc_models.detect.sam3 import vision  # noqa: E402
-from kohakugbc_models.detect.sam3.model import Sam3Detector  # noqa: E402
+from kohakugbc_models.detect.sam3.model import Sam3Detector, fp8_recipe  # noqa: E402
+from kohakugbc_models.kernels import tuning  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "traces" / "text"
 CUDA = torch.cuda.is_available()
@@ -120,6 +121,44 @@ def test_graphed_fusion_equals_the_issued_one():
     # One graph per pass size, captured once and replayed for every later pass of that size
     assert set(det.fuse.graphs) == {det.bucket(len(t)) for _, t in items}
     assert len(items) > len(det.fuse.graphs)
+
+
+@pytest.mark.gpu
+@pytest.mark.weights
+@pytest.mark.parametrize("recipe", [None, "best"])
+def test_graphed_vision_equals_the_issued_one(recipe):
+    """Each crop count's replay reads its own pixels and returns features that outlive the next
+    replay of the same graph: bit for bit the eager pass on the kernels a graph is tuned for
+    (``tuning.metric("graph")``), on every crop (bf16, and the card's fastest fp8 recipe), every
+    crop count captured (no silent fallback to eager)."""
+    if not CUDA:
+        pytest.skip("needs a GPU")
+    fp8 = fp8_recipe("cuda:0", "auto") if recipe else None
+    if recipe and fp8 is None:
+        pytest.skip("this card runs no fp8 recipe")
+    det = Sam3Detector(max_pairs=2, max_crops=3, vision_graph=True, fp8=fp8, kernels=True)
+    det.load("cuda:0", torch.bfloat16)
+    patches = [p for p, _ in crops(7)]
+    with torch.inference_mode():
+        # Seven crops: passes of 3, 3, 1, so the 3-crop graph replays twice in one call
+        graphed = det.encode_images(patches)
+        graphed_positions = det.positions.clone()
+        kept = det.vision_graphs
+        det.vision_graphs = None
+        with tuning.metric("graph"):
+            plain = det.encode_images(patches)
+        det.vision_graphs = kept
+    assert len(graphed) == len(plain) == 7
+    for i, (g, p) in enumerate(zip(graphed, plain)):
+        assert set(g) == set(p) and all(torch.equal(g[k], p[k]) for k in g), i
+    assert not torch.equal(graphed[0][2], graphed[3][2])
+    assert torch.equal(graphed_positions, det.positions)
+    assert set(kept.graphs) == {1, 2, 3} and all(v is not None for v in kept.graphs.values())
+
+
+def test_vision_graph_and_vision_compile_are_exclusive():
+    with pytest.raises(ValueError):
+        Sam3Detector(vision_compile="default", vision_graph=True)
 
 
 def test_text_cache_keeps_the_most_recent():

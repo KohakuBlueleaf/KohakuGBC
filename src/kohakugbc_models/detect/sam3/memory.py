@@ -38,7 +38,7 @@ class Plan:
         """``(crops, pairs)``: the largest caps within ``budget``, or None when even 1 / 1
         does not fit."""
         for pairs in (p for p in (64, 32, 16, 8, 4, 2, 1) if p <= max_pairs):
-            for crops in (c for c in (4, 2, 1) if c <= max_crops):
+            for crops in (c for c in (32, 16, 8, 4, 2, 1) if c <= max_crops):
                 if self.estimate(crops, pairs) <= budget:
                     return crops, pairs
         return None
@@ -61,5 +61,12 @@ def load(device, name: str) -> Plan | None:
         return None
 
 
-def plan_name(dtype: str, fp8: str | None, text_device: str | None, box_source: str) -> str:
-    return f"sam3-{dtype}-fp8_{fp8 or 'none'}-text_{text_device or 'device'}-{box_source}"
+def plan_name(
+    dtype: str,
+    fp8: str | None,
+    text_device: str | None,
+    box_source: str,
+    vision_graph: bool = False,
+) -> str:
+    graph = "-vision_graph" if vision_graph else ""
+    return f"sam3-{dtype}-fp8_{fp8 or 'none'}-text_{text_device or 'device'}-{box_source}{graph}"

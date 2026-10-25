@@ -5,6 +5,7 @@ Needs only numpy and Pillow, so the benches run in interpreters without GBC inst
 - ``graph_requests(graph, image)``: the requests one GBC graph asked: the root's object names on
   the whole image, then each entity's part names on its crop (texts in first-seen order).
 - ``trace_requests(trace_dir)``: every detector request of a recorded trace (``detect.jsonl``).
+- ``recorded_requests(root)``: the requests ``record.py`` saved from a machine run.
 
 A request is ``{"name", "box" (image fractions or None), "texts", "patch" (HxWx3 uint8)}``.
 """
@@ -102,6 +103,26 @@ def graph_file_requests(graphs: str | Path, image: str | Path) -> list[dict]:
     """The requests of the first graph of a ``graphs.jsonl``."""
     graph = json.loads(Path(graphs).read_text(encoding="utf-8").splitlines()[0])
     return graph_requests(graph, image)
+
+
+def recorded_requests(root: str | Path, limit: int = 0) -> list[dict]:
+    """The requests ``record.py`` saved from a machine run, in arrival order (``limit``: the
+    first N; 0: all)."""
+    root = Path(root)
+    out = []
+    for line in (root / "requests.jsonl").read_text(encoding="utf-8").splitlines():
+        r = json.loads(line)
+        out.append(
+            {
+                "name": f"rec:{r['name']}",
+                "box": None,
+                "texts": r["texts"],
+                "patch": np.load(root / "patches" / r["patch"]),
+            }
+        )
+        if limit and len(out) >= limit:
+            break
+    return out
 
 
 def trace_requests(trace_dir: str | Path) -> list[dict]:

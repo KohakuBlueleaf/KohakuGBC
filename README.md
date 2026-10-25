@@ -259,9 +259,11 @@ requests in flight at once.
 | `cpu` | crops, pictures, parsing, resolution | worker pool | `python` (threads or processes), `remote` |
 
 Admission keeps the VLM lane at its target load (`vlm_waiting`): an image is admitted while the
-lane's queue and its units' waiting counts are below it. Each slot's entry is selected once; the
-placement plan adds up what every engine holds on every device and refuses a configuration that
-does not fit before any weight loads.
+lane's queue and its units' waiting counts are below it, every other lane in `waiting` is below
+its limit, and fewer than `max_jobs` images are resident. `max_jobs` bounds an image's time in the
+machine (about `max_jobs` / throughput) however long the source runs. Each slot's entry is
+selected once; the placement plan adds up what every engine holds on every device and refuses a
+configuration that does not fit before any weight loads.
 
 ### Engines
 
@@ -306,7 +308,7 @@ a small file of overrides.
 | Name | Holds |
 |---|---|
 | `engines` | per slot: `entry` and the entry's settings |
-| `machine` | `vlm_waiting`, `max_jobs`, `window`, `start_timeout_s`, `record` (the fraction of jobs recorded for conformance), `store`, `report` (a run-report folder), `knobs` (any Togeari knob) |
+| `machine` | `vlm_waiting`, `waiting` (`{lane: items}`), `max_jobs`, `window`, `start_timeout_s`, `record` (the fraction of jobs recorded for conformance), `store`, `report` (a run-report folder), `knobs` (any Togeari knob) |
 | `source` | `{"kind": "folder" \| "jsonl" \| "trace", "path": ...}`: images, or jobs with `captions`, `tags` and `controls` per image |
 | `sink` | `{"kind": "graphs", "path": ...}` (graphs, failures, per-job counts) or `{"kind": "memory"}` |
 | `controls` | defaults under every job's own controls |
@@ -369,6 +371,11 @@ the one GPU; wall time includes loading the models):
 
 One portrait image on the same GPU: 34 s with OWLv2, 79 s with transformers' SAM 3 (the device
 fills with SAM 3 beside the VLM).
+
+**The machine on one RTX 5090** (`configs/machine/qwen35_card.py`, 1200 COCO images, everything
+on the card; [flagship](docs/performance/flagship.md)): 2.00 img/s with each image 42 s in the
+machine at the median (75 s p99), the card at its power cap; the same throughput and latency
+however long the source runs.
 
 **The detector and the embedder** (GBC's own SAM 3 and EmbeddingGemma; 45 recorded detector
 requests through the detect engine, 925 names; [six GPUs and the CPU](docs/performance/detector.md)):

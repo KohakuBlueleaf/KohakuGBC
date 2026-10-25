@@ -1,6 +1,8 @@
 """A callable replayed from CUDA graphs: one graph per key (one static input shape), captured
 after an uncaptured warm-up that tunes and builds every op under the ``graph`` tuning metric;
-all graphs of one ``Graphs`` share one memory pool (replays never overlap).
+all graphs of one ``Graphs`` share one memory pool (replays never overlap), and so may several
+``Graphs`` of one model (``pool``). A replay's inputs are copied in without a host wait: a host
+source must stay alive (and, to overlap, be pinned) until the replay has run.
 
 Captures run one at a time in the process and never beside the kernels' host synchronizations
 (``hardware.QUIET``). They happen on a key's first call, or
@@ -24,11 +26,14 @@ class Graphs:
     outputs at the ``clone`` indices come back cloned (they must outlive the next replay), the
     rest as the graph's own tensors (read before the next replay)."""
 
-    def __init__(self, fn, clone: tuple[int, ...] = ()):
+    def __init__(self, fn, clone: tuple[int, ...] = (), pool=None):
+        """``pool``: a pool handle shared with other ``Graphs`` whose replays never overlap
+        these (one model's passes on one stream), so their memory is the largest pass's, not
+        the sum; a new pool by default."""
         self.fn, self.clone = fn, set(clone)
         self.graphs: dict = {}
         self.frozen = False
-        self.pool = torch.cuda.graph_pool_handle()
+        self.pool = torch.cuda.graph_pool_handle() if pool is None else pool
 
     def capture(self, inputs: tuple) -> tuple:
         static = tuple(t.clone() for t in inputs)
@@ -68,7 +73,7 @@ class Graphs:
             return self.fn(*inputs)
         graph, static, outputs = self.graphs[key]
         for dst, src in zip(static, inputs):
-            dst.copy_(src)
+            dst.copy_(src, non_blocking=True)
         graph.replay()
         if torch.is_tensor(outputs):
             return outputs.clone() if 0 in self.clone else outputs

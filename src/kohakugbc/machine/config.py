@@ -12,8 +12,10 @@ from pathlib import Path
 DEFAULTS = {
     "engines": {"cpu": {"entry": "python", "workers": 8, "mode": "thread"}},
     "machine": {
-        # Admission: jobs are admitted while the VLM lane reports fewer than this many waiting
+        # Admission: jobs are admitted while the VLM lane reports fewer than this many waiting,
+        # and every lane of ``waiting`` ({lane: items}) fewer than its own limit
         "vlm_waiting": 64,
+        "waiting": {},
         "max_jobs": 512,
         "window": 64,
         # A unit's start: loading a model's weights and capturing its graphs can take minutes
