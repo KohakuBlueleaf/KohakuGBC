@@ -132,6 +132,7 @@ class Parts:
     sink: object
     lanes: dict
     slots: dict
+    controls: dict
 
 
 def build(*layers) -> tuple:
@@ -181,4 +182,4 @@ def build_parts(*layers) -> Parts:
         **m.get("knobs", {}),
     )
     source = sources.build(cfg["source"], cfg["controls"])
-    return Parts(machine, source, sinks.build(cfg["sink"]), lanes, slots)
+    return Parts(machine, source, sinks.build(cfg["sink"]), lanes, slots, cfg["controls"])

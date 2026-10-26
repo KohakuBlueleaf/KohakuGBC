@@ -1,6 +1,7 @@
 """``gbc``: the command line of KohakuGBC.
 
 gbc run CONFIG [CONFIG ...]     build the machine from configuration layers and run its source
+gbc serve CONFIG [CONFIG ...]   keep the machine running, images streamed in over HTTP
 gbc check CONFIG [CONFIG ...]   build and check the machine without starting any unit
 gbc host CONFIG ... --slot S    serve the units of slot S's entry (--slot repeats) to remote units
 gbc doctor [CONFIG ...]         versions, devices, entries; a configuration's placement plan
@@ -19,12 +20,17 @@ from importlib import metadata
 from pathlib import Path
 
 from togeari import no_unit_start
+from togeari.cli.commands.serve import serve_until_signal
+from togeari.plugins import Inspector
+from togeari.plugins.telemetry import Telemetry
+from togeari.serve import Service
 
 from kohakugbc import __version__
 from kohakugbc.engines import host as engine_host
 from kohakugbc.engines import placement, registry
 from kohakugbc.engines.host import EngineHost, wire
-from kohakugbc.machine import build, config
+from kohakugbc.io.service import Jobs
+from kohakugbc.machine import build, build_parts, config
 
 
 def run(layers: list[str]) -> int:
@@ -37,6 +43,29 @@ def run(layers: list[str]) -> int:
         summary = machine.run(source, sink)
     print(json.dumps({"seconds": round(time.time() - start, 2), "summary": summary}, default=str))
     return 0
+
+
+def serve(args) -> int:
+    """The machine as ``togeari serve``'s HTTP service: images in over ``POST /jobs``, graphs
+    back as they finish and into the configuration's sink; ``--telemetry`` for ``togeari
+    dash``."""
+    parts = build_parts(*args.configs)
+    jobs = Jobs(args.inbox, parts.controls)
+    plugins = []
+    if args.telemetry:
+        plugins = [Inspector(), Telemetry(args.telemetry, inspector_token=True)]
+    host, _, port = args.listen.rpartition(":")
+    service = Service(
+        parts.machine,
+        parts.sink,
+        jobs.prepare,
+        jobs.present,
+        host,
+        int(port),
+        os.environ.get(args.token_env) if args.token_env else None,
+        plugins,
+    )
+    return serve_until_signal(service, sys.stdout)
 
 
 def check(layers: list[str]) -> int:
@@ -144,9 +173,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="gbc", description=__doc__.split("\n")[0])
     parser.add_argument("--version", action="version", version=f"kohakugbc {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("run", "check", "host", "doctor"):
+    for name in ("run", "serve", "check", "host", "doctor"):
         p = sub.add_parser(name)
         p.add_argument("configs", nargs="*" if name in ("doctor", "host") else "+")
+        if name == "serve":
+            p.add_argument("--listen", default="127.0.0.1:8790")
+            p.add_argument("--inbox", default="runs/serve/inbox", help="posted pictures")
+            p.add_argument("--telemetry", default=None, help="telemetry directory for the dash")
+            p.add_argument("--token-env", default=None, help="env variable holding the token")
         if name == "host":
             p.add_argument("--slot", action="append", choices=registry.SLOTS)
             p.add_argument("--engines-file")
@@ -159,6 +193,8 @@ def main(argv: list[str] | None = None) -> int:
     match args.command:
         case "run":
             return run(args.configs)
+        case "serve":
+            return serve(args)
         case "check":
             return check(args.configs)
         case "host":
