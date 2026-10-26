@@ -54,6 +54,10 @@
 #   grammar (vLLM's structured outputs; GBC_VLM_GRAMMAR picks the backend: auto, xgrammar,
 #   guidance, outlines) or kohaku (KohakuvLLM's grammar logits processor; KOHAKU_GRAMMAR_WS).
 # GBC_VLM_URL: a `vllm serve` base URL (http://127.0.0.1:PORT/v1); unset: in-process.
+# GBC_VLM_API_SERVERS: the API server processes `vllm serve` runs (its --api-server-count;
+#   scripts/bench/machine/serve.py only). One server's chat template and image preprocessing cap
+#   a B300 near 50 requests/s; 8 lift it to the engine's limit.
+# GBC_VLM_MM_CACHE_TYPE: vLLM's multimodal processor cache type (lru or shm; vLLM's if unset).
 # GBC_VLM_FRONTEND (in-process): vllm, or kohakuvllm (KohakuvLLM's frontend: GBC_VLM_PREP_WORKERS
 #   preparing processes, its vision tower here, GBC_VLM_VISION_FP8=1 for FP8 linears on sm89+).
 # GBC_VLM_STATS=1: vLLM's stats line every 5 s.
@@ -84,6 +88,7 @@ _N = len(_VLM_CARDS)
 _ADMISSION = os.environ.get("GBC_ADMISSION", "stream")
 _JOBS_PER_CARD = {"stream": 96, "batch": 512}[_ADMISSION]
 _MM_CACHE = os.environ.get("GBC_VLM_MM_CACHE_GB", "")
+_MM_CACHE_TYPE = os.environ.get("GBC_VLM_MM_CACHE_TYPE", "")
 _TIMEOUT = os.environ.get("GBC_VLM_TIMEOUT_S", "")
 _VLM_LANE = {"timeout_s": float(_TIMEOUT)} if _TIMEOUT else {}
 _WAITS = os.environ.get("GBC_WAITS_S", "")
@@ -121,6 +126,7 @@ _VLLM = {
     "enable_prefix_caching": os.environ.get("GBC_VLM_PREFIX", "1") == "1",
     "limit_mm_per_prompt": {"image": 4, "video": 0},
     **({"mm_processor_cache_gb": float(_MM_CACHE)} if _MM_CACHE else {}),
+    **({"mm_processor_cache_type": _MM_CACHE_TYPE} if _MM_CACHE_TYPE else {}),
     "compilation_config": {
         "compile_mm_encoder": True,
         "cudagraph_mm_encoder": os.environ.get("GBC_VLM_MM_GRAPH", "1") == "1",
@@ -136,6 +142,8 @@ _VLLM = {
     ),
     "disable_log_stats": not _STATS,
 }
+# `vllm serve`'s own options (not engine arguments), for scripts/bench/machine/serve.py
+_SERVE = {"api_server_count": int(os.environ.get("GBC_VLM_API_SERVERS", "1"))}
 _TOP = ("gpu_memory_utilization", "max_model_len", "max_num_seqs")
 _INPROCESS = {
     "entry": "vllm",

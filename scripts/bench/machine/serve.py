@@ -1,5 +1,6 @@
-"""`vllm serve` with the engine arguments of a machine configuration (its ``_VLLM`` dict), so the
-HTTP path runs the same engine as the in-process one. Runs in the foreground; the caller picks
+"""`vllm serve` with the engine arguments of a machine configuration (its ``_VLLM`` dict, and its
+``_SERVE`` dict of the server's own options when it has one), so the HTTP path runs the same
+engine as the in-process one. Runs in the foreground; the caller picks
 the card with CUDA_VISIBLE_DEVICES and stops the server.
 
     python scripts/bench/machine/serve.py CONFIG PORT
@@ -34,7 +35,8 @@ def flags(args: dict) -> list[str]:
 
 def main() -> int:
     config, port = sys.argv[1], sys.argv[2]
-    args = dict(runpy.run_path(config)["_VLLM"])
+    ns = runpy.run_path(config)
+    args = {**ns["_VLLM"], **ns.get("_SERVE", {})}
     model = args.pop("model")
     argv = ["vllm", "serve", model, "--host", "127.0.0.1", "--port", port, *flags(args)]
     print(" ".join(argv), flush=True)
