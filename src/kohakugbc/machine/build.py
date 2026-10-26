@@ -38,6 +38,8 @@ CPU_NODES = (
     "relational_request",
     "relational_record",
     "to_gbc",
+    "tag_request",
+    "place_tags",
 )
 
 
@@ -62,6 +64,9 @@ class SlotModels:
     def embedder(self, text: str):
         return self._call("embed")(text)
 
+    def tagger(self, request: dict) -> dict:
+        return self._call("tag")(request)
+
 
 def lanes_of(slots: dict) -> dict[str, Lane]:
     """One lane per slot; the slot's ``lane`` options (former, select, ...) win over the
@@ -74,9 +79,12 @@ def lanes_of(slots: dict) -> dict[str, Lane]:
 
 
 def bindings(lanes: dict, slots: dict, store: bool) -> dict:
-    """Model nodes to their slots' lanes, heavy plain nodes to the CPU lane, the rest inline."""
+    """Model nodes to their slots' lanes (an optional slot left out: its node inline, never
+    reached), heavy plain nodes to the CPU lane, the rest inline."""
     bind = {
-        node: Use(lanes[slot], adapter=slots[slot].adapter) for slot, node in registry.NODES.items()
+        node: Use(lanes[slot], adapter=slots[slot].adapter)
+        for slot, node in registry.NODES.items()
+        if slot in slots
     }
     if store:
         # A repeated name costs no embedding, across jobs and reruns

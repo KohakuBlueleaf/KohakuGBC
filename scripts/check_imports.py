@@ -21,6 +21,7 @@ RULES = {
         "kohakugbc.nodes.specs",
         "kohakugbc_models.detect",
         "kohakugbc_models.embed",
+        "kohakugbc_models.tag",
         "kohakugbc_models.vlm",
         "togeari",
     ),
@@ -33,6 +34,13 @@ RULES = {
     ),
     "kohakugbc_models.embed": (
         "kohakugbc_models.embed",
+        "kohakugbc_models.kernels",
+        "kohakugbc_models.numerics",
+    ),
+    # The tagger runs SAM 3's ViT layers
+    "kohakugbc_models.tag": (
+        "kohakugbc_models.tag",
+        "kohakugbc_models.detect",
         "kohakugbc_models.kernels",
         "kohakugbc_models.numerics",
     ),
@@ -77,6 +85,7 @@ EXTRAS = {
         "safetensors",
     ),
     "kohakugbc_models.embed": ("numpy", "torch", "transformers", "huggingface_hub", "safetensors"),
+    "kohakugbc_models.tag": ("PIL", "numpy", "torch", "huggingface_hub", "safetensors"),
     "kohakugbc_models.kernels": ("torch", "triton", "tilelang"),
     "kohakugbc_models.numerics": ("torch",),
     "kohakugbc_models.vlm": (

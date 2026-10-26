@@ -1,7 +1,7 @@
 # Configuring engines
 
-Each slot of the machine (`vlm`, `detect`, `embed`, `cpu`) names one entry with its settings in
-the configuration's `engines`. Configuration files are Python files; later files on the
+Each slot of the machine (`vlm`, `detect`, `embed`, `tag`, `cpu`) names one entry with its
+settings in the configuration's `engines` (`tag` is optional: without it the program never tags). Configuration files are Python files; later files on the
 command line merge over earlier ones.
 
 ## The VLM over an API
@@ -168,6 +168,18 @@ bucket. float32 by default (equal to sentence-transformers' vectors, 1 - cos <= 
 `residual` (float32) keeps the residual stream in fp32 when `dtype` is 16-bit. 1.9-8.3x
 sentence-transformers' throughput on a 5090 in float32. `capture` (`load`) captures every stream
 bucket up to `graph_tokens` (4096) at load; longer streams run uncaptured.
+
+### The tagger: PixAI tagger v1.0
+
+`"tag": {"entry": "torch", "model": "pixai-labs/pixai-tagger-v1.0", "devices": ..., "max_batch":
+4, "fp8": "auto"}` builds GBC's port (`kohakugbc_models.tag.pixai`): the checkpoint's ViTDet
+backbone on SAM 3's ViT layers and kernels (fp8 linears as for SAM 3, one CUDA graph per batch
+size up to `max_batch`), its attention-pool head, each category's best threshold. Each picture
+fits a 1008 canvas (centre padded), each crop too; a box can instead pool the whole picture's
+tokens inside it. On a 5090, MXFP8, 65.8 pictures/s; against the reference in bf16 the tag sets
+agree on every one of 64 images (F1 1.0), in MXFP8 at F1 0.989 (median). The controls
+(`tagging`, `tag_placement`, `tag_regions`, ...) and `configs/controls/tags.py` set where the
+tags go (`kohakugbc.nodes.tags`).
 
 OWLv2's default is float32 because its results then do not depend on its batch: in
 float16 a batched crop's scores move by up to 0.085 from the crop alone, in float32 by at most

@@ -29,6 +29,8 @@ class Models(Protocol):
 
     def embedder(self, text: str): ...
 
+    def tagger(self, request: dict) -> dict: ...
+
 
 def chat(request: dict) -> str:
     """A VLM reply to a request (``kohakugbc.nodes.specs.chat``); bound to the VLM lane."""
@@ -45,13 +47,19 @@ def embedder(text: str):
     raise NotImplementedError("embedder runs on an engine")
 
 
+def tagger(request: dict) -> dict:
+    """Tag probabilities of an image and its regions (``kohakugbc.nodes.tags``); bound to the
+    tag lane."""
+    raise NotImplementedError("tagger runs on an engine")
+
+
 def build(models: Models | None = None, name: str = "gbc") -> NodeLibrary:
     """The node library: every registered node; model nodes from ``models`` when given."""
     lib = NodeLibrary(name)
     for fn, outputs, flags in NODES:
         lib.node(outputs=outputs, **flags)(fn)
-    model_nodes = (chat, detector, embedder) if models is None else _calling(models)
-    for fn, output in zip(model_nodes, ("reply", "raw", "vec")):
+    model_nodes = (chat, detector, embedder, tagger) if models is None else _calling(models)
+    for fn, output in zip(model_nodes, ("reply", "raw", "vec", "scores")):
         lib.node(outputs=[output])(fn)
     return lib
 
@@ -68,4 +76,7 @@ def _calling(models: Models) -> tuple:
     def embedder(text: str):
         return models.embedder(text)
 
-    return chat, detector, embedder
+    def tagger(request: dict) -> dict:
+        return models.tagger(request)
+
+    return chat, detector, embedder, tagger

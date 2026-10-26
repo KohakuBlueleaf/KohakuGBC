@@ -68,6 +68,8 @@
 #   the RTX 5090 machine budget halves SAM 3's batches (7.4 -> 3.7 requests) and costs 4% img/s.
 # GBC_EMBED_DEVICE: card (default: EmbeddingGemma beside SAM 3 on the aux cards) or cpu (one
 #   host process without a card, GBC_EMBED_THREADS torch threads, 8; the aux cards keep SAM 3).
+# GBC_TAG=1: the PixAI tagger beside SAM 3 on the aux cards (configs/controls/tags.py places its
+#   tags); GBC_TAG_FP8 (auto), GBC_TAG_BATCH (4 images per pass), GBC_TAG_MODEL.
 # GBC_VLM_TIMEOUT_S: the VLM lane's deadline per attempt (none if unset); an expired request
 #   answers empty and is counted in the job's policy failures.
 # GBC_WAITS_S: why jobs wait, sampled every that many seconds into the report's waits.jsonl.
@@ -105,6 +107,7 @@ _WAITING = dict(
 )
 _EMBED_CPU = {"card": False, "cpu": True}[os.environ.get("GBC_EMBED_DEVICE", "card")]
 _EMBED_THREADS = int(os.environ.get("GBC_EMBED_THREADS", "8"))
+_TAG = os.environ.get("GBC_TAG", "0") == "1"
 _SCHEDULER = os.environ.get("GBC_VLM_SCHEDULER", "")
 _GRAPH_MAX = int(os.environ.get("GBC_VLM_GRAPH_MAX", "0"))
 _ATTN = os.environ.get("GBC_VLM_ATTN", "")
@@ -204,6 +207,15 @@ _ENGINES = {
     },
     "cpu": {"entry": "python", "workers": 8},
 }
+if _TAG:
+    _ENGINES["tag"] = {
+        "entry": "torch",
+        "model": os.environ.get("GBC_TAG_MODEL", "pixai-labs/pixai-tagger-v1.0"),
+        "devices": [f"cuda:{c}" for c in _AUX_CARDS],
+        "fp8": os.environ.get("GBC_TAG_FP8", "auto"),
+        "max_batch": int(os.environ.get("GBC_TAG_BATCH", "4")),
+        "memory_gb": 2.5,
+    }
 
 
 def _on_card(slot: str) -> dict:
@@ -226,18 +238,19 @@ if _HOSTING not in ("process", "inprocess") or _LAYOUT not in ("card", "split"):
     raise ValueError(f"GBC_HOSTING={_HOSTING!r} (process, inprocess), GBC_HOST_LAYOUT={_LAYOUT!r}")
 engines = _ENGINES
 if _HOSTING == "process" and not _URL:
-    _hosts, _refs = {}, {"vlm": [], "detect": [], "embed": []}
+    _hosts, _refs = {}, {"vlm": [], "detect": [], "embed": [], **({"tag": []} if _TAG else {})}
     for _c in dict.fromkeys(_VLM_CARDS + _AUX_CARDS):
         _env = {"CUDA_VISIBLE_DEVICES": _c}
         _slots = ["vlm"] if _c in _VLM_CARDS else []
         _slots += ["detect"] if _c in _AUX_CARDS else []
         _slots += ["embed"] if _c in _AUX_CARDS and not _EMBED_CPU else []
+        _slots += ["tag"] if _c in _AUX_CARDS and _TAG else []
         if _LAYOUT == "card":
             # vLLM refuses to start below GBC_VLM_UTIL of the card free: the VLM loads first
             _hosts[f"card{_c}"] = {
                 "env": _env,
                 "engines": {s: _on_card(s) for s in _slots},
-                "order": [["vlm"], ["detect", "embed"]],
+                "order": [["vlm"], ["detect", "embed", "tag"]],
             }
             for _s in _slots:
                 _refs[_s].append(f"card{_c}")

@@ -1,11 +1,12 @@
 """Engine slots and their entries, selected once when the machine is built.
 
 A slot is one kind of work the program sends out: ``vlm`` (``chat``), ``detect``
-(``detector``), ``embed`` (``embedder``) and ``cpu`` (plain nodes heavier than the dispatcher
-should run). An entry fills a slot: ``entry(slot, name)`` registers a factory, and the machine's
-engine configuration names one entry per slot with its settings,
+(``detector``), ``embed`` (``embedder``), ``tag`` (``tagger``) and ``cpu`` (plain nodes heavier
+than the dispatcher should run). An entry fills a slot: ``entry(slot, name)`` registers a
+factory, and the machine's engine configuration names one entry per slot with its settings,
 ``{"vlm": {"entry": "replay", "trace": "..."}, ...}``. Nothing dispatches on the entry after
-the build.
+the build. An ``OPTIONAL`` slot the configuration leaves out has no lane (its node is only
+reached under controls that ask for it).
 """
 
 from collections.abc import Callable
@@ -14,8 +15,9 @@ from typing import Any
 
 from kohakugbc.engines import spawn
 
-SLOTS = ("vlm", "detect", "embed", "cpu")
-NODES = {"vlm": "chat", "detect": "detector", "embed": "embedder"}
+SLOTS = ("vlm", "detect", "embed", "tag", "cpu")
+NODES = {"vlm": "chat", "detect": "detector", "embed": "embedder", "tag": "tagger"}
+OPTIONAL = ("tag",)
 
 ENTRIES: dict[tuple[str, str], Callable[[dict, dict], "Slot"]] = {}
 
@@ -76,6 +78,8 @@ def build(engines: dict) -> dict[str, Slot]:
         shared["hosts"] = spawn.launch_all(engines["hosts"])
     problems, out = [], {}
     for slot in SLOTS:
+        if slot in OPTIONAL and engines.get(slot) is None:
+            continue
         try:
             out[slot] = build_slot(slot, engines.get(slot), shared)
         except ValueError as exc:

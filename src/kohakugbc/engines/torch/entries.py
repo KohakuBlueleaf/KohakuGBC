@@ -35,7 +35,10 @@ dtype ``auto``: bfloat16 on sm80+, float16 before) or ``transformers`` (``max_un
 decoder pass). Embedder's ``impl``: ``auto`` (GBC's own EmbeddingGemma for ``gemma3_text``
 checkpoints, sentence-transformers otherwise), ``native`` (``kernels`` true, ``graphs`` true,
 ``residual`` ``float32``, ``capture`` ``load`` with ``graph_tokens`` 4096 the largest stream
-captured; dtype float32) or ``st``.
+captured; dtype float32) or ``st``. Tagger (the ``tag`` slot): ``model``
+(``pixai-labs/pixai-tagger-v1.0``), ``max_batch`` (4 images per pass), ``fp8`` (as SAM 3's),
+``kernels`` true, ``vision_graph`` true (one CUDA graph per batch size, captured at load); dtype
+``auto``.
 """
 
 from togeari.engines.torch import TorchAdapter, TorchEngine
@@ -47,6 +50,7 @@ from kohakugbc.engines.registry import Slot, entry
 from kohakugbc.engines.torch.modules import (
     NativeEmbedder,
     NativeSam3Detector,
+    NativeTagger,
     Owlv2Detector,
     Sam3Detector,
     SentenceEmbedder,
@@ -68,6 +72,8 @@ ESTIMATE_GB = {
     # bfloat16: 1.6 GiB of weights, 1.9 GiB at 4 crops of 16 texts in passes of 4 pairs
     "facebook/sam3": 3.5,
     "google/embeddinggemma-300m": 1.4,
+    # bfloat16: 0.97 GiB of weights (MXFP8 ViT: 0.5), activations at 4 images per pass
+    "pixai-labs/pixai-tagger-v1.0": 2.5,
 }
 
 
@@ -95,11 +101,17 @@ def embed_costs(item) -> dict:
     return {"texts": 1, "chars": len(item.inputs["text"])}
 
 
+def tag_costs(item) -> dict:
+    """A tagger request's costs: its picture and its crops."""
+    return {"images": 1 + len(item.get("crops", {}))}
+
+
 # Each lane's cost estimator and its revision (part of Togeari's execution identity: bump it
 # when the estimate changes)
 COSTS = {
     "detector": (detect_costs, "gbc-detect-crops-pairs/1"),
     "embedder": (embed_costs, "gbc-embed-texts-chars/1"),
+    "tagger": (tag_costs, "gbc-tag-images/2"),
 }
 
 
@@ -262,3 +274,18 @@ def embedder(settings: dict, shared: dict) -> Slot:
         return _slot("embedder", model, settings, shared, "float32", "text", budgets)
     model = SentenceEmbedder(name, max_batch=max_batch, name="embedder")
     return _slot("embedder", model, settings, shared, "float32", "text", budgets)
+
+
+@entry("tag", "torch")
+def tagger(settings: dict, shared: dict) -> Slot:
+    name = settings.get("model", "pixai-labs/pixai-tagger-v1.0")
+    placements = placement.devices(settings.get("devices", "auto"))
+    max_batch = int(settings.get("max_batch", 4))
+    model = NativeTagger(
+        name,
+        max_batch=max_batch,
+        fp8=fp8_recipe(placement.flat(placements)[0], settings.get("fp8")),
+        kernels=bool(settings.get("kernels", True)),
+        vision_graph=bool(settings.get("vision_graph", True)),
+    )
+    return _slot("tagger", model, settings, shared, "auto", "request", {"images": max_batch})

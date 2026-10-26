@@ -33,6 +33,10 @@ Payload the text; result the vector (float32).
 ``NativeEmbedder``: the same payloads and results through GBC's own EmbeddingGemma
 (``kohakugbc_models.embed.gemma``): a batch's texts packed into one token stream, the pass replayed
 from CUDA graphs.
+
+``NativeTagger``: the PixAI tagger (``kohakugbc_models.tag.pixai``). Payload ``{"picture",
+"regions", "candidates"}``: the image (uint8, fitted to 1008 px here), region id -> relative
+box, tag names to score beside the image's own; result ``PixaiTagger.answer``'s dict.
 """
 
 import inflect
@@ -53,6 +57,8 @@ from kohakugbc.engines.placement import LOADING
 from kohakugbc_models.detect.boxes import BOX_SOURCES, mask_boxes
 from kohakugbc_models.detect.sam3.model import Sam3Detector as OwnSam3
 from kohakugbc_models.embed.gemma import EmbeddingGemma
+from kohakugbc_models.tag.geometry import fit
+from kohakugbc_models.tag.pixai import PixaiTagger
 
 # By the checkpoint's model_type (facebook/sam3 is the video config; its image model is Sam3Model)
 SAM3_MODELS = {"sam3": Sam3Model, "sam3_video": Sam3Model, "sam3_lite_text": Sam3LiteTextModel}
@@ -508,6 +514,70 @@ class NativeEmbedder:
 
     def split(self, out: np.ndarray, n: int) -> list:
         return [out[i] for i in range(n)]
+
+    def key(self, payload) -> None:
+        return None
+
+
+class NativeTagger:
+    def __init__(
+        self,
+        model_name: str = "pixai-labs/pixai-tagger-v1.0",
+        max_batch: int = 4,
+        name: str = "tagger",
+        fp8: str | None = None,
+        kernels: bool = True,
+        vision_graph: bool = True,
+    ):
+        self.model_name, self.max_batch, self.name = model_name, max_batch, name
+        self.model = PixaiTagger(model_name, max_batch, fp8, kernels, vision_graph)
+        self.device, self.dtype = "cpu", torch.float32
+
+    def load(self, device, dtype) -> None:
+        with LOADING:
+            self.model.load(device, dtype)
+        self.device, self.dtype = device, dtype
+
+    def to(self, device) -> None:
+        self.model.to(device)
+        self.device = device
+
+    def example(self) -> list:
+        picture = np.full((1008, 756, 3), 127, np.uint8)
+        return [{"picture": picture, "regions": {"a": [0.1, 0.1, 0.5, 0.6]}, "candidates": []}]
+
+    def prepare(self, payloads: list) -> dict:
+        """Every payload's picture then its crops, one tagger picture each; the picture's
+        region masks (the crops carry none)."""
+        pictures, masks = [], []
+        for p in payloads:
+            whole = fit(p["picture"])
+            pictures.append(whole)
+            masks.append(self.model.masks(whole, list(p["regions"].values())))
+            for crop in p.get("crops", {}).values():
+                pictures.append(fit(crop))
+                masks.append(None)
+        pixels = self.model.pixels(pictures)
+        if torch.device(self.device).type == "cuda":
+            pixels = pixels.pin_memory()
+        return {"payloads": payloads, "pixels": pixels, "masks": masks}
+
+    def forward(self, batch: dict) -> list[dict]:
+        probs = self.model.run(batch["pixels"], batch["masks"])
+        out, at = [], 0
+        for payload in batch["payloads"]:
+            ids = list(payload.get("crops", {}))
+            crops = {cid: probs[at + 1 + k][0] for k, cid in enumerate(ids)}
+            out.append(
+                self.model.answer(
+                    probs[at], list(payload["regions"]), payload.get("candidates") or [], crops
+                )
+            )
+            at += 1 + len(ids)
+        return out
+
+    def split(self, out: list, n: int) -> list:
+        return out
 
     def key(self, payload) -> None:
         return None

@@ -166,7 +166,7 @@ def _remote(slot: str):
     return factory
 
 
-for _slot in ("vlm", "detect", "embed", "cpu"):
+for _slot in registry.SLOTS:
     registry.entry(_slot, "remote")(_remote(_slot))
 
 __all__ = ["EngineHost", "HostProcess", "RemoteUnit", "Served", "authkey", "serve"]
