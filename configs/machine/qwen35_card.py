@@ -76,10 +76,14 @@ import os
 _CARD = int(os.environ.get("GBC_CARD", "0"))
 _AUX = int(os.environ.get("GBC_AUX_CARD", str(_CARD)))
 # GBC_CARDS=0,1,2,3: one machine over those cards, each engine one unit per card (GBC_CARD and
-# GBC_AUX_CARD unused); the admission defaults scale with the card count
+# GBC_AUX_CARD unused); GBC_VLM_CARDS / GBC_AUX_CARDS set the VLM's and SAM 3 + EmbeddingGemma's
+# cards apart (a 27B VLM fills its card: GBC_VLM_CARDS=0,1,2 GBC_AUX_CARDS=3). The admission
+# defaults scale with the VLM card count
 _CARDS = [int(c) for c in os.environ.get("GBC_CARDS", "").split(",") if c]
-_VLM_CARDS = _CARDS or [_CARD]
-_AUX_CARDS = _CARDS or [_AUX]
+_VLM_CARDS = [int(c) for c in os.environ.get("GBC_VLM_CARDS", "").split(",") if c]
+_AUX_CARDS = [int(c) for c in os.environ.get("GBC_AUX_CARDS", "").split(",") if c]
+_VLM_CARDS = _VLM_CARDS or _CARDS or [_CARD]
+_AUX_CARDS = _AUX_CARDS or _CARDS or [_AUX]
 _N = len(_VLM_CARDS)
 _ADMISSION = os.environ.get("GBC_ADMISSION", "stream")
 _JOBS_PER_CARD = {"stream": 96, "batch": 512}[_ADMISSION]
