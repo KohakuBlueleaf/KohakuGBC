@@ -8,6 +8,8 @@ resized to the recorded size, so a request carries the recorded number of image 
 copy hits another's prefix or multimodal cache (the shared system prompts still may).
 
 Writes ``OUT.jsonl`` (one row per request: latency, ttft, tokens, text) and ``OUT.summary.json``.
+``--dump FILE`` sends nothing: it writes each request's messages (pictures as data URLs) with its
+recorded reply, one JSON row each, the calibration data of KohakuvLLM's ``tools/calibrate.py``.
 
     python scripts/bench/vlm/replay.py TRACE_DIR IMAGE_ROOT --url http://127.0.0.1:8000/v1 \
         --model qwen3.5-4b --flavour vllm --inflight 64 --repeat 4 --out runs/replay/vllm_c64
@@ -170,12 +172,13 @@ def summarize(name: str, inflight: int, results: list[dict], wall: float) -> dic
     }
 
 
-async def replay(args) -> dict:
+def build(args) -> list[tuple[dict, dict]]:
+    """(trace row, request body) for every request of every copy."""
     root = Path(args.images)
     with open(Path(args.trace) / "vlm.jsonl", encoding="utf-8") as f:
         rows = [json.loads(line) for line in f]
     images: dict[str, Image.Image] = {}
-    payloads = []
+    out = []
     for copy in range(args.repeat):
         for row in rows:
             key = json.loads(row["key"])
@@ -186,7 +189,24 @@ async def replay(args) -> dict:
                 if name not in images:
                     images[name] = Image.open(root / name).convert("RGB")
                 pic = picture(images[name], key, size, copy)
-            payloads.append((row["action"], body(row, pic, args)))
+            out.append((row, body(row, pic, args)))
+    return out
+
+
+def dump(args) -> dict:
+    """Each request's messages and its recorded reply, one JSON row each (calibration data)."""
+    n = 0
+    with open(args.dump, "w", encoding="utf-8") as f:
+        for row, payload in build(args):
+            if row["reply"] is None:
+                continue
+            f.write(json.dumps({"messages": payload["messages"], "reply": row["reply"]}) + "\n")
+            n += 1
+    return {"dump": args.dump, "rows": n}
+
+
+async def replay(args) -> dict:
+    payloads = [(row["action"], payload) for row, payload in build(args)]
 
     urls = args.url.split(",")
     load = dict.fromkeys(urls, 0)
@@ -235,7 +255,8 @@ def main() -> int:
     p.add_argument("--flavour", default="vllm")
     p.add_argument("--inflight", type=int, default=64)
     p.add_argument("--repeat", type=int, default=1)
-    p.add_argument("--out", required=True)
+    p.add_argument("--out", default=None, help="results prefix (required unless --dump)")
+    p.add_argument("--dump", default=None, help="write the requests with their replies, no run")
     p.add_argument(
         "--structured",
         choices=("grammar", "kohaku", "none"),
@@ -247,6 +268,11 @@ def main() -> int:
     p.add_argument("--no-image", action="store_true", help="no picture in any request (a probe)")
     p.add_argument("--max-tokens", type=int, default=0, help="every request's (1: prefill only)")
     args = p.parse_args()
+    if args.dump:
+        print(json.dumps(dump(args)), flush=True)
+        return 0
+    if not args.out:
+        p.error("--out is required unless --dump")
     print(json.dumps(asyncio.run(replay(args))), flush=True)
     return 0
 
