@@ -39,7 +39,7 @@ Where the program differs from the PoC, and why:
 | unseeded choices | relation count, phrase naming a set of children, composition root and wording drawn from unseeded generators | drawn from generators seeded by what is asked (`draw.rng`); the recorded runs use the same draws |
 | relation sentences | repeats dropped through a `set`, order set by the process's hash seed | repeats dropped in first-seen order; the recorded runs use the same rule |
 | `relational = "relation"` / `"composition"` | each keeps the other kind of question | each keeps its own kind |
-| embeddings | names embedded when a same-object comparison needs them | every region's name embedded (batched on the embed lane); the same decisions |
+| embeddings | names embedded when a same-object comparison needs them | the same: `embed_needs` names the embeddings `register` reads (overlapping vertices' names of a different singular form, up to the first equal one), each name embedded once per job; the same decisions |
 | relational questions | asked after every round, answers cached by input | asked once at the end by default (`relate = "end"`); the final graph asks the same questions; `"every_round"` gives a graph after each round |
 | region registration | after its query, under a per-image lock | before its query, in program order; the same order as the PoC's one-region-at-a-time rounds |
 

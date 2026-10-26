@@ -66,6 +66,8 @@
 # GBC_DETECT_FORMER / GBC_EMBED_FORMER: the lane's batch former, size (requests) or budget (each
 #   request's costs: SAM 3's crops and pairs per pass, the embedder's texts and characters). On
 #   the RTX 5090 machine budget halves SAM 3's batches (7.4 -> 3.7 requests) and costs 4% img/s.
+# GBC_EMBED_DEVICE: card (default: EmbeddingGemma beside SAM 3 on the aux cards) or cpu (one
+#   host process without a card, GBC_EMBED_THREADS torch threads, 8; the aux cards keep SAM 3).
 # GBC_VLM_TIMEOUT_S: the VLM lane's deadline per attempt (none if unset); an expired request
 #   answers empty and is counted in the job's policy failures.
 # GBC_WAITS_S: why jobs wait, sampled every that many seconds into the report's waits.jsonl.
@@ -101,6 +103,8 @@ _WAITING = dict(
         kv.split("=") for kv in os.environ.get("GBC_WAITING", f"detect={32 * _N}").split(",") if kv
     )
 )
+_EMBED_CPU = {"card": False, "cpu": True}[os.environ.get("GBC_EMBED_DEVICE", "card")]
+_EMBED_THREADS = int(os.environ.get("GBC_EMBED_THREADS", "8"))
 _SCHEDULER = os.environ.get("GBC_VLM_SCHEDULER", "")
 _GRAPH_MAX = int(os.environ.get("GBC_VLM_GRAPH_MAX", "0"))
 _ATTN = os.environ.get("GBC_VLM_ATTN", "")
@@ -193,7 +197,7 @@ _ENGINES = {
     "embed": {
         "entry": "torch",
         "model": os.environ.get("GBC_EMBED_MODEL", "google/embeddinggemma-300m"),
-        "devices": [f"cuda:{c}" for c in _AUX_CARDS],
+        "devices": ["cpu"] if _EMBED_CPU else [f"cuda:{c}" for c in _AUX_CARDS],
         "max_batch": 64,
         "former": os.environ.get("GBC_EMBED_FORMER", "size"),
         "memory_gb": 1.4,
@@ -226,7 +230,8 @@ if _HOSTING == "process" and not _URL:
     for _c in dict.fromkeys(_VLM_CARDS + _AUX_CARDS):
         _env = {"CUDA_VISIBLE_DEVICES": _c}
         _slots = ["vlm"] if _c in _VLM_CARDS else []
-        _slots += ["detect", "embed"] if _c in _AUX_CARDS else []
+        _slots += ["detect"] if _c in _AUX_CARDS else []
+        _slots += ["embed"] if _c in _AUX_CARDS and not _EMBED_CPU else []
         if _LAYOUT == "card":
             # vLLM refuses to start below GBC_VLM_UTIL of the card free: the VLM loads first
             _hosts[f"card{_c}"] = {
@@ -242,11 +247,17 @@ if _HOSTING == "process" and not _URL:
             _refs["vlm"].append(f"vlm{_c}")
         if "detect" in _slots:
             # vLLM refuses to start below GBC_VLM_UTIL of the card free: the card's VLM first
-            _aux = {"detect": _on_card("detect"), "embed": _on_card("embed")}
+            _aux = {s: _on_card(s) for s in _slots if s != "vlm"}
             _after = [f"vlm{_c}"] if "vlm" in _slots else []
             _hosts[f"aux{_c}"] = {"env": _env, "engines": _aux, "after": _after}
-            _refs["detect"].append(f"aux{_c}")
-            _refs["embed"].append(f"aux{_c}")
+            for _s in _aux:
+                _refs[_s].append(f"aux{_c}")
+    if _EMBED_CPU:
+        _hosts["embed_cpu"] = {
+            "env": {"CUDA_VISIBLE_DEVICES": "-1", "OMP_NUM_THREADS": _EMBED_THREADS},
+            "engines": {"embed": dict(_ENGINES["embed"])},
+        }
+        _refs["embed"].append("embed_cpu")
     engines = {
         "hosts": _hosts,
         **{s: {"entry": "remote", "hosts": refs} for s, refs in _refs.items()},

@@ -54,10 +54,12 @@
 @def (image, region, replies, seen, controls)expand(record, found, seen, target):
     record = None
     found = []
-    (region)name_of(text)
-    @hint lane="embed"
-    (text)embedder(vec)
-    (seen, region, vec, controls)register(seen, is_new, target)
+    (seen, region, controls)embed_needs(texts)
+    (texts)collect(text, `embed`, vec -> vecs)
+    embed:
+        @hint lane="embed"
+        (text)embedder(vec)
+    (seen, region, texts, vecs, controls)register(seen, is_new, target)
     (is_new)branch(`new`, `known`)
     new:
         (region, replies)answer_from(how)

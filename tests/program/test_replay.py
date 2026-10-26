@@ -120,7 +120,9 @@ def test_register_joins_in_program_order():
     controls = {"overlap_threshold": 0.85, "same_threshold": 0.725}
     a = {"id": "cup", "text": "cup", "box": [0.1, 0.1, 0.5, 0.5, 0.9]}
     b = {"id": "x_cup", "text": "cups", "box": [0.1, 0.1, 0.52, 0.5, 0.8]}
-    seen, new_a, _ = regions.register([], a, None, controls)
-    seen, new_b, target = regions.register(seen, b, None, controls)
+    assert regions.embed_needs([], a, controls) == []
+    seen, new_a, _ = regions.register([], a, [], [], controls)
+    assert regions.embed_needs(seen, b, controls) == []
+    seen, new_b, target = regions.register(seen, b, [], [], controls)
     assert (new_a, new_b, target) == (True, False, "cup")
     assert seen[0]["box"][:4] == [0.1, 0.1, 0.52, 0.5] and seen[0]["texts"] == ["cup", "cups"]

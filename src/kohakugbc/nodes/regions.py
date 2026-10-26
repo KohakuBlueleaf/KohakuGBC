@@ -16,7 +16,7 @@ from kohakugbc.nodes.registry import node
 from kohakugbc.nodes.specs import chat as specs
 from kohakugbc.nodes.specs import detect as det
 from kohakugbc.nodes.specs import parse
-from kohakugbc.nodes.text import detectable, same_object
+from kohakugbc.nodes.text import detectable, same_object, singular
 
 # ---- detection ---------------------------------------------------------------------------------
 
@@ -65,15 +65,44 @@ def empty_seen() -> list:
     return []
 
 
+def _candidates(seen: list, region: dict, threshold: float):
+    """``(k, entry)`` of every vertex seen before whose box overlaps the region's both ways."""
+    for k, entry in enumerate(seen):
+        if bx.overlapped(region["box"], entry["box"], threshold):
+            yield k, entry
+
+
+@node(outputs=["texts"])
+def embed_needs(seen: list, region: dict, controls: dict) -> list[str]:
+    """The names whose embeddings ``register`` reads for this region and does not hold yet: the
+    region's own and the overlapping vertices' names it compares by embedding (a different
+    singular form), up to the first name equal in singular form. No overlap, no embedding."""
+    need = []
+    for _, entry in _candidates(seen, region, controls["overlap_threshold"]):
+        for text, vec in zip(entry["texts"], entry["vecs"]):
+            if singular(text) == singular(region["text"]):
+                return need
+            for name in (region["text"], text) if vec is None else (region["text"],):
+                if name not in need:
+                    need.append(name)
+    return need
+
+
 @node(outputs=["seen", "is_new", "target"])
-def register(seen: list, region: dict, vec, controls: dict) -> tuple[list, bool, str | None]:
+def register(
+    seen: list, region: dict, texts: list, vecs: list, controls: dict
+) -> tuple[list, bool, str | None]:
     """A region joins the first vertex seen before whose box overlaps its own both ways and one of
     whose names is the same object; the vertex's box widens to cover it. Otherwise the region is
-    a new vertex."""
-    threshold = controls["overlap_threshold"]
-    for k, entry in enumerate(seen):
-        if not bx.overlapped(region["box"], entry["box"], threshold):
-            continue
+    a new vertex. ``texts`` / ``vecs``: the embeddings ``embed_needs`` asked for, kept on the
+    vertices they belong to (a name never compared keeps None)."""
+    known = dict(zip(texts, vecs))
+    seen = [
+        {**e, "vecs": [v if v is not None else known.get(t) for t, v in zip(e["texts"], e["vecs"])]}
+        for e in seen
+    ]
+    vec = known.get(region["text"])
+    for k, entry in _candidates(seen, region, controls["overlap_threshold"]):
         for text, other in zip(entry["texts"], entry["vecs"]):
             if same_object(region["text"], text, vec, other, controls["same_threshold"]):
                 joined = {
@@ -199,8 +228,3 @@ def batch_replies(regions: list, reply: str) -> dict:
         }
         replies[region["id"]] = json.dumps(single, ensure_ascii=False)
     return replies
-
-
-@node(outputs=["text"])
-def name_of(region: dict) -> str:
-    return region["text"]
