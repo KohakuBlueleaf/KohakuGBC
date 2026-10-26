@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 
 import torch
+from reference import RECIPES, mlp_of, recipe_of
 from stages import RULES, Stages, environment, summary
 from workloads import graph_file_requests, recorded_requests, trace_requests
 
@@ -103,8 +104,10 @@ def run_config(
         fusion_buckets="exact" if graph == "graph-exact" else "pow2",
         vision_compile=vision_mode,
         text_graph=text == "graph",
-        fp8=None if recipe.startswith("none") else recipe.split("+")[0],
+        fp8=None if recipe.startswith("none") else recipe_of(recipe),
         fp8_encoder=recipe.endswith("+enc"),
+        fp8_mlp=None if recipe.startswith("none") else mlp_of(recipe),
+        fp4_scales=args.fp4_scales if "nvfp4s" in recipe else None,
     )
     start = time.perf_counter()
     det.load(device, DTYPES[dtype])
@@ -241,9 +244,11 @@ def main() -> int:
         "--fp8",
         nargs="+",
         default=["none"],
-        choices=["none", "row", "mx", "row+enc", "mx+enc"],
-        help="the ViT's linears in bf16 or fp8 per recipe; +enc: the DETR encoder's MLPs too",
+        choices=["none"] + RECIPES + [f"{r}+enc" for r in RECIPES],
+        help="the ViT's linears in bf16, fp8 or nvfp4 per recipe (nvfp4s: with --fp4-scales); "
+        "+enc: the DETR encoder's MLPs too",
     )
+    parser.add_argument("--fp4-scales", help="nvfp4s: fp4_calibrate.py's amax JSON")
     parser.add_argument("--repeat", type=int, default=3)
     args = parser.parse_args()
 

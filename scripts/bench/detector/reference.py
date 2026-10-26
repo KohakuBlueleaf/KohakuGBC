@@ -38,6 +38,22 @@ DTYPES = {
     "float64": torch.float64,
 }
 FIELDS = ("logits", "presence", "boxes")
+# --fp8 recipes: nvfp4s is nvfp4 with the --fp4-scales calibration (one producer pass per
+# input); ATTN:MLP gives the MLPs their own recipe
+RECIPES = ["row", "mx", "nvfp4", "nvfp4s", "mx:nvfp4", "mx:nvfp4s"]
+
+
+def recipe_of(tag: str) -> str:
+    """``kernels.fp8``'s recipe of a ``--fp8`` tag's attention (``+enc`` and the calibration
+    dropped)."""
+    name = tag.split("+")[0].split(":")[0]
+    return "nvfp4" if name == "nvfp4s" else name
+
+
+def mlp_of(tag: str) -> str | None:
+    """The MLPs' recipe of an ``ATTN:MLP`` tag, None for one recipe throughout."""
+    parts = tag.split("+")[0].split(":")
+    return recipe_of(parts[1]) if len(parts) > 1 else None
 
 
 def transformers_pairs(det: Transformers, requests: list[dict], batch: int, masks: bool) -> list:
@@ -126,8 +142,10 @@ def load(kind: str, args, dtype: str):
             max_pairs=2 if ruler else args.max_pairs,
             max_crops=1 if ruler else 4,
             kernels=args.kernels and not ruler,
-            fp8=kind.split("fp8-")[1].split("+")[0] if "fp8-" in kind else None,
+            fp8=recipe_of(kind.split("fp8-")[1]) if "fp8-" in kind else None,
             fp8_encoder=kind.endswith("+enc"),
+            fp8_mlp=mlp_of(kind.split("fp8-")[1]) if "fp8-" in kind else None,
+            fp4_scales=args.fp4_scales if "nvfp4s" in kind else None,
         )
     det.load(args.device, DTYPES[dtype])
     return det
@@ -198,9 +216,10 @@ def main() -> int:
         "--fp8",
         nargs="*",
         default=[],
-        choices=["row", "mx", "row+enc", "mx+enc"],
-        help="also ours with the ViT (+enc: and the encoder's MLPs) in fp8 per recipe",
+        choices=RECIPES + [f"{r}+enc" for r in RECIPES],
+        help="also ours with the ViT (+enc: and the encoder's MLPs) in fp8 / nvfp4 per recipe",
     )
+    parser.add_argument("--fp4-scales", help="nvfp4s: fp4_calibrate.py's amax JSON")
     parser.add_argument(
         "--skip-fp64-ours",
         action="store_true",

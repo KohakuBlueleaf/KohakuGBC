@@ -23,9 +23,11 @@ again in its singular form); ``box_threshold`` (0.05), ``max_texts`` (16). SAM 3
 otherwise), ``native`` (``max_pairs`` 16 pairs per fusion pass, ``max_crops`` 4 crops per vision
 pass, at most ``max_batch``, ``text_cache`` 4096, ``kernels`` true, ``fusion_graph`` true,
 ``fusion_buckets`` ``exact``, ``text_graph`` true, ``vision_graph`` (the ViT replayed from one
-CUDA graph per crop count; false by default), ``fp8`` (``row`` / ``mx``: the ViT's linears in
-fp8; ``auto``: the fastest the card runs, mx on sm100+, row on sm89, none below; none by
-default),
+CUDA graph per crop count; false by default), ``fp8`` (``row`` / ``mx`` / ``nvfp4``: the ViT's
+linears in fp8 / NVFP4; ``auto``: the fastest the card runs, mx on sm100+, row on sm89, none
+below; none by default), ``fp8_mlp`` (the MLPs' recipe, ``fp8``'s by default: ``mx`` with
+``nvfp4`` keeps attention in MX), ``fp4_scales`` (NVFP4: a calibrated amax JSON, one producer
+pass per input; ``scripts/bench/detector/fp4_calibrate.py`` writes it),
 ``fp8_encoder`` (the DETR encoder's MLPs too), ``text_device`` (``cpu``: the text encoder on the
 host), ``budget_gb`` (caps fitted from the card's measured memory plan), ``capture`` (``load``:
 every CUDA graph captured at load, other shapes uncaptured; ``lazy``: on first use);
@@ -189,6 +191,8 @@ def native_sam3(name: str, settings: dict, shared: dict, common: dict) -> Slot:
         text_graph=bool(settings.get("text_graph", True)),
         fp8=fp8,
         fp8_encoder=bool(settings.get("fp8_encoder", False)),
+        fp4_scales=settings.get("fp4_scales"),
+        fp8_mlp=settings.get("fp8_mlp"),
         text_device=text_device,
         capture=settings.get("capture", "load"),
         retry_singular=bool(settings.get("retry_singular", True)),

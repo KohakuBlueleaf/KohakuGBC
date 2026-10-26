@@ -1,5 +1,6 @@
-"""Triton fp8 producers: one row per program, the row in registers (``BC`` >= its width), the
-values quantized from fp32 (``ROW``: one scale per row; else MX, one e8m0 scale per 32).
+"""Triton fp8 producers (``row`` / ``mx``): one row per program, the row in registers (``BC`` >=
+its width), the values quantized from fp32 (``ROW``: one scale per row; else MX, one e8m0 scale
+per 32). The NVFP4 producers are ``_fp4``'s.
 """
 
 import triton

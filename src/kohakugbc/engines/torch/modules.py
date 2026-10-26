@@ -361,6 +361,8 @@ class NativeSam3Detector:
         capture: str = "load",
         retry_singular: bool = True,
         vision_graph: bool = False,
+        fp4_scales: str | None = None,
+        fp8_mlp: str | None = None,
     ):
         self.model_name, self.box_threshold = model_name, box_threshold
         self.max_texts, self.max_batch, self.name = max_texts, max_batch, name
@@ -381,6 +383,8 @@ class NativeSam3Detector:
             capture=capture,
             max_texts=max_texts * max_batch,
             vision_graph=vision_graph,
+            fp4_scales=fp4_scales,
+            fp8_mlp=fp8_mlp,
         )
         self.device, self.dtype = "cpu", torch.float32
 

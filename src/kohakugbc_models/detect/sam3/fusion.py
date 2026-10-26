@@ -11,7 +11,8 @@ from torch import nn
 
 from kohakugbc_models.detect.sam3 import ops
 from kohakugbc_models.detect.sam3.vision import Mlp as VisionMlp
-from kohakugbc_models.detect.sam3.vision import linear, norm
+from kohakugbc_models.detect.sam3.vision import inputs, linear, norm
+from kohakugbc_models.kernels.fp8 import Fp4Input
 
 
 class Attention(nn.Module):
@@ -75,10 +76,12 @@ class EncoderLayer(nn.Module):
         self.layer_norm3 = nn.LayerNorm(hidden)
         self.ops = ops.EAGER
         self.recipe: str | None = None
+        self.fc1_in: Fp4Input | None = None
 
     def quantize(self, recipe: str, device) -> None:
         """The MLP in fp8: its input norm emits fp8 (``add_ln_quant``), its ReLU too."""
         self.recipe = recipe
+        inputs(self, device, "fc1_in")
         self.mlp.quantize(recipe, device)
 
     def forward(self, x, h, text, pos, text_mask, next_norm) -> tuple:
@@ -91,7 +94,9 @@ class EncoderLayer(nn.Module):
             x, h = add_norm(self.ops, x, a, self.layer_norm3)
         else:
             ln = self.layer_norm3
-            x, q, scales = self.ops.add_ln_quant(x, a, ln.weight, ln.bias, ln.eps, self.recipe)
+            x, q, scales = self.ops.add_ln_quant(
+                x, a, ln.weight, ln.bias, ln.eps, self.recipe, self.fc1_in
+            )
             h = (q, scales, x.shape)
         m = self.mlp(h)
         if next_norm is None:

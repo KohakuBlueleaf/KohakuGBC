@@ -27,6 +27,14 @@ def drop(*linears: nn.Linear) -> None:
         module.weight = nn.Parameter(module.weight.new_empty(0), requires_grad=False)
 
 
+def inputs(module: nn.Module, device, *names: str) -> None:
+    """``module``'s NVFP4 input scales (``fp8.Fp4Input``) under ``names``, made once, on
+    ``device``."""
+    for name in names:
+        site = getattr(module, name)
+        setattr(module, name, (fp8.Fp4Input() if site is None else site).to(device))
+
+
 class Attention(nn.Module):
     def __init__(self, hidden: int, heads: int):
         super().__init__()
@@ -36,11 +44,13 @@ class Attention(nn.Module):
         self.ops = ops.EAGER
         self.qkv_weight = self.qkv_bias = None
         self.fp8: tuple | None = None
+        self.o_in: fp8.Fp4Input | None = None
 
     @torch.no_grad()
     def quantize(self, recipe: str, device) -> None:
         """The fused q / k / v and the output projection's weights in fp8 (``recipe``), the
         16-bit weights then dropped; an fp8 layer moves its fp8 weights to ``device``."""
+        inputs(self, device, "o_in")
         if self.fp8 is not None:
             self.fp8 = (
                 self.fp8[0],
@@ -66,7 +76,7 @@ class Attention(nn.Module):
         qkv = fp8.mm(xq, xs, *weights["qkv"], recipe, self.qkv_bias)
         q, k, v = qkv.view(batch, size, size, 3, self.heads, self.head_dim).unbind(3)
         out = self.ops.vit_attention(q, k, v, cos, sin, window)
-        oq, os = self.ops.quant(out.reshape(batch, size, size, channels), recipe)
+        oq, os = self.ops.quant(out.reshape(batch, size, size, channels), recipe, self.o_in)
         out = fp8.mm(oq, os, *weights["o"], recipe, self.o_proj.bias)
         return out.view(batch, size, size, channels)
 
@@ -100,9 +110,11 @@ class Mlp(nn.Module):
         self.act = act
         self.ops = ops.EAGER
         self.fp8: tuple | None = None
+        self.fc2_in: fp8.Fp4Input | None = None
 
     @torch.no_grad()
     def quantize(self, recipe: str, device) -> None:
+        inputs(self, device, "fc2_in")
         if self.fp8 is not None:
             self.fp8 = (
                 self.fp8[0],
@@ -125,7 +137,7 @@ class Mlp(nn.Module):
             recipe, weights = self.fp8
             xq, xs, shape = x
             h = fp8.mm(xq, xs, *weights["fc1"], recipe, self.fc1.bias)
-            hq, hs = self.ops.act_quant(h, self.act, recipe)
+            hq, hs = self.ops.act_quant(h, self.act, recipe, self.fc2_in)
             return fp8.mm(hq, hs, *weights["fc2"], recipe, self.fc2.bias).view(shape)
         h = self.ops.linear_act(x, self.fc1.weight, self.fc1.bias, self.act)
         return linear(self.fc2, h)
@@ -158,29 +170,36 @@ class Layer(nn.Module):
         self.window = window
         self.ops = ops.EAGER
         self.recipe: str | None = None
+        self.mlp_recipe: str | None = None
+        self.qkv_in: fp8.Fp4Input | None = None
+        self.fc1_in: fp8.Fp4Input | None = None
 
-    def quantize(self, recipe: str, device) -> None:
-        self.recipe = recipe
+    def quantize(self, recipe: str, device, mlp: str | None = None) -> None:
+        """The attention's linears in ``recipe``, the MLP's in ``mlp`` (``recipe`` if None);
+        ``qkv_in`` / ``fc1_in``: the NVFP4 scales of the norms feeding q / k / v and fc1
+        (``qkv_in`` written by the layer before)."""
+        self.recipe, self.mlp_recipe = recipe, mlp or recipe
+        inputs(self, device, "qkv_in", "fc1_in")
         self.attention.quantize(recipe, device)
-        self.mlp.quantize(recipe, device)
+        self.mlp.quantize(self.mlp_recipe, device)
 
-    def add_norm(self, x, r, ln: nn.LayerNorm) -> tuple:
-        """``(x + r, ln(x + r))``; under fp8 the norm quantized: ``(q, scales, shape)``."""
-        if self.recipe is None:
+    def add_norm(self, x, r, ln: nn.LayerNorm, site, recipe: str | None) -> tuple:
+        """``(x + r, ln(x + r))``; with a ``recipe`` the norm quantized: ``(q, scales, shape)``."""
+        if recipe is None:
             return self.ops.add_layer_norm(x, r, ln.weight, ln.bias, ln.eps)
-        s, q, scales = self.ops.add_ln_quant(x, r, ln.weight, ln.bias, ln.eps, self.recipe)
+        s, q, scales = self.ops.add_ln_quant(x, r, ln.weight, ln.bias, ln.eps, recipe, site)
         return s, (q, scales, s.shape)
 
-    def forward(self, x, h, cos, sin, next_norm) -> tuple:
-        """The residual stream ``x`` and its first norm ``h`` in; the stream out with
-        ``next_norm`` of it (the next layer's first norm, fused with the residual add; None
-        after the last layer)."""
+    def forward(self, x, h, cos, sin, following) -> tuple:
+        """The residual stream ``x`` and its first norm ``h`` in; the stream out with the
+        ``following`` layer's first norm of it (fused with the residual add; None after the
+        last layer)."""
         a = self.attention(h, cos, sin, self.window or x.shape[1])
-        x, h = self.add_norm(x, a, self.layer_norm2)
+        x, h = self.add_norm(x, a, self.layer_norm2, self.fc1_in, self.mlp_recipe)
         m = self.mlp(h)
-        if next_norm is None:
+        if following is None:
             return x + m, None
-        return self.add_norm(x, m, next_norm)
+        return self.add_norm(x, m, following.layer_norm1, following.qkv_in, following.recipe)
 
 
 class PatchEmbeddings(nn.Module):
@@ -255,9 +274,9 @@ class Backbone(nn.Module):
         h = norm(self.layers[0].layer_norm1, x)
         first = self.layers[0]
         if first.recipe is not None:
-            h = (*first.ops.quant(h, first.recipe), h.shape)
+            h = (*first.ops.quant(h, first.recipe, first.qkv_in), h.shape)
         for i, layer in enumerate(self.layers):
-            following = self.layers[i + 1].layer_norm1 if i + 1 < len(self.layers) else None
+            following = self.layers[i + 1] if i + 1 < len(self.layers) else None
             x, h = layer(x, h, *self.tables["window" if layer.window else "global"], following)
         return x
 
@@ -266,12 +285,12 @@ class Backbone(nn.Module):
             if layer.recipe is None:
                 layer.attention.fuse_qkv()
 
-    def quantize(self, recipe: str, device) -> None:
-        """Every layer's linears in fp8 (``recipe``, the 16-bit weights freed); their
-        activations then quantized by the norms and the GELU that produce them. Already in fp8,
-        the fp8 weights move to ``device``."""
+    def quantize(self, recipe: str, device, mlp: str | None = None) -> None:
+        """Every layer's linears in fp8 (``recipe``; the MLPs' in ``mlp`` when given; the
+        16-bit weights freed); their activations then quantized by the norms and the GELU that
+        produce them. Already in fp8, the fp8 weights move to ``device``."""
         for layer in self.layers:
-            layer.quantize(recipe, device)
+            layer.quantize(recipe, device, mlp)
 
 
 class FpnLayer(nn.Module):

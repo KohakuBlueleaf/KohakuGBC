@@ -7,6 +7,8 @@ returns the e4m3 values ``[M, K]`` and their scales (``row``: fp32 ``[M, 1]``; `
   layer norm in fp32, quantized; returns ``(s, q, scales)``;
 - ``act_quant(h, act, recipe)``: ``act`` (``gelu``, erf; ``relu``) of ``h`` ``[..., K]`` in
   fp32, quantized.
+
+``site``: the consuming linear's ``Fp4Input`` (NVFP4's tensor scale; ignored by the fp8 recipes).
 """
 
 import torch
@@ -16,21 +18,21 @@ from kohakugbc_models.kernels import registry
 from kohakugbc_models.kernels.fp8 import quantize
 
 
-def quant(x: torch.Tensor, recipe: str) -> tuple:
-    return quantize(x.reshape(-1, x.shape[-1]), recipe)
+def quant(x: torch.Tensor, recipe: str, site=None) -> tuple:
+    return quantize(x.reshape(-1, x.shape[-1]), recipe, site)
 
 
-def add_ln_quant(x, r, w, b, eps: float, recipe: str) -> tuple:
+def add_ln_quant(x, r, w, b, eps: float, recipe: str, site=None) -> tuple:
     s = x + r
     y = F.layer_norm(s.float(), (s.shape[-1],), w.float(), b.float(), eps)
-    return (s, *quantize(y.reshape(-1, y.shape[-1]), recipe))
+    return (s, *quantize(y.reshape(-1, y.shape[-1]), recipe, site))
 
 
 ACTS = {"gelu": F.gelu, "relu": F.relu}
 
 
-def act_quant(h: torch.Tensor, act: str, recipe: str) -> tuple:
-    return quantize(ACTS[act](h.float()).reshape(-1, h.shape[-1]), recipe)
+def act_quant(h: torch.Tensor, act: str, recipe: str, site=None) -> tuple:
+    return quantize(ACTS[act](h.float()).reshape(-1, h.shape[-1]), recipe, site)
 
 
 registry.register("quant", "eager", quant)

@@ -17,6 +17,7 @@ transformers' CLIP text encoder. What it does once that transformers' forward do
 logits, the presence logit, the boxes (xyxy, 0..1) and, for the mask sources, the mask logits.
 """
 
+import json
 from collections import OrderedDict
 from pathlib import Path
 
@@ -140,7 +141,13 @@ class Sam3Detector:
     ``text_graph``: the text encoder replayed from CUDA graphs per power-of-two count of new
     texts. ``fp8``: the ViT's linears in fp8 (``row`` / ``mx``, ``kernels.fp8``), their inputs
     quantized by the producing norm / GELU / attention; ``fp8_encoder``: the DETR encoder's MLPs
-    too (input norm and ReLU emitting fp8). ``text_device``: where the text encoder
+    too (input norm and ReLU emitting fp8). ``fp8_mlp``: the MLPs' recipe (the ViT's and, with
+    ``fp8_encoder``, the encoder's; ``fp8``'s if None): ``fp8="mx", fp8_mlp="nvfp4"`` keeps
+    attention in MX and runs the MLPs in NVFP4. ``fp4_scales`` (``nvfp4``): a JSON file of each
+    linear input's calibrated amax (``fp8.Fp4Input``'s names), the producers then one pass
+    each; without it each takes its activation's amax per call. ``fp4_record``: fold every
+    call's amax into the inputs' ``seen`` (``fp4_amax`` reads them: the calibration).
+    ``text_device``: where the text encoder
     runs (``cpu``: fp32 on the host, its device memory freed; default the model's device).
     ``capture``: ``load`` captures every vision crop count, fusion bucket and text count up to
     ``max_texts`` new texts when placed on a CUDA device (largest first, into one memory pool
@@ -167,6 +174,9 @@ class Sam3Detector:
         capture: str = "load",
         max_texts: int = 64,
         vision_graph: bool = False,
+        fp4_scales: str | None = None,
+        fp4_record: bool = False,
+        fp8_mlp: str | None = None,
     ):
         if capture not in ("load", "lazy"):
             raise ValueError(f"capture {capture!r}: load or lazy")
@@ -180,6 +190,10 @@ class Sam3Detector:
         self.fusion_buckets, self.vision_compile = fusion_buckets, vision_compile
         self.text_graph, self.text_graphs = text_graph, None
         self.fp8, self.text_device, self.fp8_encoder = fp8, text_device, fp8_encoder
+        self.fp8_mlp = (fp8_mlp or fp8) if fp8 else None
+        if fp4_scales and "nvfp4" not in (fp8, self.fp8_mlp):
+            raise ValueError(f"fp4_scales is for nvfp4 (fp8={fp8!r}, fp8_mlp={fp8_mlp!r})")
+        self.fp4_scales, self.fp4_record = fp4_scales, fp4_record
         self.capture, self.max_texts = capture, max_texts
         self.model_name, self.box_source = model, box_source
         self.max_pairs, self.max_crops, self.text_cache = max_pairs, max_crops, text_cache
@@ -216,14 +230,15 @@ class Sam3Detector:
         # device, which then keeps them without running them (``parked``)
         self.parked = None
         if self.fp8:
-            why = fp8.supports(device, self.fp8)
+            why = fp8.supports(device, self.fp8) or fp8.supports(device, self.fp8_mlp)
             if why is not None:
                 if vision.backbone.layers[0].recipe is None:
-                    raise ValueError(f"fp8 {self.fp8!r} on {device}: {why}")
+                    raise ValueError(f"fp8 {self.fp8!r} / {self.fp8_mlp!r} on {device}: {why}")
                 self.parked = f"fp8 {self.fp8!r} weights parked on {device}: {why}"
-            vision.backbone.quantize(self.fp8, device)
+            vision.backbone.quantize(self.fp8, device, self.fp8_mlp)
             if self.fp8_encoder:
-                self.model.detr_encoder.quantize(self.fp8, device)
+                self.model.detr_encoder.quantize(self.fp8_mlp, device)
+            self.fp4_inputs()
         self.model.detr_decoder.frequencies(self.dtype, device)
         self.model.bind_ops(Ops.resolved(device, self.dtype) if self.kernels else EAGER)
         self.device = device
@@ -251,6 +266,24 @@ class Sam3Detector:
             self.text_graphs = Graphs(self.text_features, clone=(0,), pool=shared)
         if self.capture == "load" and not self.parked and torch.device(device).type == "cuda":
             self.capture_all()
+
+    def fp4_inputs(self) -> None:
+        """The NVFP4 input scales set from ``fp4_scales`` (every one named there) and their
+        recording switched to ``fp4_record``."""
+        sites = fp8.fp4_inputs(self.model)
+        if self.fp4_scales:
+            amax = json.loads(Path(self.fp4_scales).read_text(encoding="utf-8"))
+            missing = sorted(set(sites) - set(amax))
+            if missing:
+                raise ValueError(f"{self.fp4_scales} lacks {len(missing)} inputs: {missing[:4]}")
+            for name, site in sites.items():
+                site.set(float(amax[name]))
+        for site in sites.values():
+            site.record = self.fp4_record
+
+    def fp4_amax(self) -> dict[str, float]:
+        """Each NVFP4 input's largest amax recorded so far (``fp4_record``)."""
+        return {n: float(s.seen) for n, s in fp8.fp4_inputs(self.model).items()}
 
     def capture_all(self) -> None:
         """Every crop count's vision pass run once (its ops tuned; captured with

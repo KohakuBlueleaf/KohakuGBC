@@ -29,8 +29,12 @@
 #   requests at once.
 # GBC_DETECT_GB: SAM 3's placement reservation (fp8 row, batch 8 peaks at about 2.5 GB).
 # GBC_DETECT_FP8: SAM 3's ViT linears in fp8: auto (mx on sm100+, row on sm89, none below), mx,
-#   row or none. GBC_DETECT_VISION_GRAPH=1: SAM 3's ViT replayed from CUDA graphs, one per crop
-#   count up to GBC_DETECT_CROPS (crops per vision pass, 8; at most GBC_DETECT_BATCH, 8).
+#   row, nvfp4 or none; GBC_DETECT_FP8_MLP: the MLPs' recipe (GBC_DETECT_FP8's if unset; mx with
+#   nvfp4 keeps attention in MX). GBC_DETECT_FP4_SCALES: nvfp4's calibrated input amax JSON
+#   (one producer pass each; scripts/bench/detector/fp4_calibrate.py writes it); unset: each
+#   input's own amax per call. GBC_DETECT_VISION_GRAPH=1: SAM 3's ViT replayed from CUDA
+#   graphs, one per crop count up to GBC_DETECT_CROPS (crops per vision pass, 8; at most
+#   GBC_DETECT_BATCH, 8).
 #   GBC_DETECT_SCHEDULE=priority_streams with GBC_DETECT_PRIORITY=N: SAM 3 on a CUDA stream of
 #   priority N, ahead of the VLM's; on the RTX 5090 beside the in-process vLLM it locked the card
 #   (a kernel spinning at 100% busy).
@@ -169,6 +173,8 @@ _ENGINES = {
         "model": os.environ.get("GBC_DETECT_MODEL", "facebook/sam3"),
         "dtype": os.environ.get("GBC_DETECT_DTYPE", "auto"),
         "fp8": None if _DETECT_FP8 == "none" else _DETECT_FP8,
+        "fp4_scales": os.environ.get("GBC_DETECT_FP4_SCALES") or None,
+        "fp8_mlp": os.environ.get("GBC_DETECT_FP8_MLP") or None,
         "fusion_buckets": "pow2",
         "vision_graph": os.environ.get("GBC_DETECT_VISION_GRAPH", "1") == "1",
         "max_crops": int(os.environ.get("GBC_DETECT_CROPS", "8")),
