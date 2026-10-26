@@ -16,10 +16,11 @@ library `gbc`. Every value is passed and returned; no node mutates its inputs.
 | `wave`, `depth_round` | one round: the frontier as it was when the round began, in waves that take what the node budget still needs |
 | `coverage` | one more root sentence naming objects not covered yet |
 | `relate` | relation and composition questions over the graph so far |
-| `gbc` | the job: root, rounds until `next_step` says done, the relational questions, the graph |
+| `gbc` | the job: root, rounds until `next_step` says done, the relational questions, the graph; with `tagging`, the tags placed on it (`kohakugbc.nodes.tags`) |
 
 Model nodes are transport only: `chat` (request in, reply text out), `detector` (patch and
-request in, raw boxes out), `embedder` (name in, vector out). Request builders
+request in, raw boxes out), `embedder` (name in, vector out), `tagger` (picture, crops and boxes
+in, tag probabilities out). Request builders
 (`kohakugbc.nodes.specs.chat`, `detect`) and reply parsers (`parse`) are plain nodes, so the same
 requests and parsing run on any engine.
 

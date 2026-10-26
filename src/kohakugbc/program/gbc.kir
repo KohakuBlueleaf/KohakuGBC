@@ -187,3 +187,13 @@
     related:
     @hint lane="cpu"
     (image, records, controls)to_gbc(graph, stats)
+    (controls)tag_mode(tagging)
+    (tagging)branch(`tag`, `untagged`)
+    tag:
+        @hint lane="cpu"
+        (image, graph, tags, controls)tag_request(request)
+        @hint lane="tag"
+        (request)tagger(scores)
+        @hint lane="cpu"
+        (graph, stats, scores, tags, controls)place_tags(graph, stats)
+    untagged:

@@ -43,6 +43,16 @@ DEFAULTS = {
     # Seeded roots: tags at least this confident name elements; tags in the element prompt
     "tag_threshold": 0.35,
     "tag_hint": False,
+    # Tags on the finished graph (kohakugbc.nodes.tags): where, from which set, and a region's
+    # threshold as a multiple of the tag's category threshold, how far (logits) below the best
+    # region a region still holds the tag; tag_placement "top": the image and the vertices whose
+    # only parent is the image, nothing moved; tag_regions: crops tagged alone or pooled boxes
+    "tagging": "none",
+    "tag_source": "tagger",
+    "tag_placement": "top",
+    "tag_regions": "crop",
+    "tag_region_scale": 1.0,
+    "tag_region_margin": 1.0,
 }
 
 CHOICES = {
@@ -51,6 +61,10 @@ CHOICES = {
     "leaf_caption": ("query", "parent"),
     "relational": ("both", "relation", "composition", "none"),
     "relate": ("end", "every_round"),
+    "tagging": ("none", "image", "regions"),
+    "tag_source": ("tagger", "given", "both"),
+    "tag_placement": ("top", "place"),
+    "tag_regions": ("crop", "pool"),
 }
 
 
