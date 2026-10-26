@@ -19,7 +19,7 @@ Qwen3.5-4B with GBC's requests, 1 reply in 400 needs the retry, and ``grammar`` 
 Settings: ``model``; ``units`` (1); ``devices`` (per unit, the CUDA devices it uses; several
 mean tensor parallel over them); ``gpu_memory_utilization`` (0.5), ``max_model_len`` (16384),
 ``max_num_seqs`` (64), ``dtype`` (``bfloat16``), ``capacity`` (requests in flight per unit;
-default twice ``max_num_seqs``), ``structured`` (``prompt``), ``retries`` (1), ``engine_args``
+default twice ``max_num_seqs``), ``structured`` (``kohaku``), ``retries`` (1), ``engine_args``
 (any other ``AsyncEngineArgs`` field: ``mamba_ssm_cache_dtype``, ``scheduler_cls``, ...),
 ``sampling`` (extra ``SamplingParams`` fields), ``stats_s`` (0: off; else vLLM's stats line
 every that many seconds, with ``disable_log_stats=False`` in ``engine_args``); ``frontend``
@@ -107,7 +107,7 @@ class VllmUnit(EngineBase):
         capacity=None,
         name=None,
         sampling: dict | None = None,
-        structured: str = "prompt",
+        structured: str = "kohaku",
         retries: int = 1,
         stats_s: float = 0.0,
         frontend: str = "vllm",

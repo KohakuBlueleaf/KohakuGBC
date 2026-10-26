@@ -50,9 +50,9 @@
 # GBC_VLM_STEP_TOKENS: vLLM's token budget per step (8192).
 # GBC_VLM_GRAPH_MAX: the largest step (tokens) vLLM captures a CUDA graph for (vLLM's default if
 #   unset).
-# GBC_STRUCTURED: prompt (default; in-process, 1 reply in 400 asked again; over HTTP, no retry),
+# GBC_STRUCTURED: kohaku (default; KohakuvLLM's grammar logits processor, KOHAKU_GRAMMAR_WS),
 #   grammar (vLLM's structured outputs; GBC_VLM_GRAMMAR picks the backend: auto, xgrammar,
-#   guidance, outlines) or kohaku (KohakuvLLM's grammar logits processor; KOHAKU_GRAMMAR_WS).
+#   guidance, outlines) or prompt (in-process, 1 reply in 400 asked again; over HTTP, no retry).
 # GBC_VLM_URL: a `vllm serve` base URL (http://127.0.0.1:PORT/v1); unset: in-process.
 # GBC_VLM_FRONTEND (in-process): vllm, or kohakuvllm (KohakuvLLM's frontend: GBC_VLM_PREP_WORKERS
 #   preparing processes, its vision tower here, GBC_VLM_VISION_FP8=1 for FP8 linears on sm89+).
@@ -104,7 +104,7 @@ _STATS = os.environ.get("GBC_VLM_STATS", "0") == "1"
 
 _URL = os.environ.get("GBC_VLM_URL", "")
 _KV_GB = float(os.environ.get("GBC_VLM_KV_GB", "0"))
-_STRUCTURED = os.environ.get("GBC_STRUCTURED", "prompt")
+_STRUCTURED = os.environ.get("GBC_STRUCTURED", "kohaku")
 
 # vLLM's engine, in-process or behind `vllm serve` (scripts/bench/machine/serve.py reads _VLLM)
 _VLLM = {

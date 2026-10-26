@@ -62,7 +62,7 @@ engines = {
 | `units`, `devices` | units, and per unit the CUDA devices it uses (several: tensor parallel over them) |
 | `gpu_memory_utilization`, `max_model_len`, `max_num_seqs`, `dtype` | vLLM's own (0.5, 16384, 64, `bfloat16`) |
 | `capacity` | requests in flight per unit (twice `max_num_seqs`) |
-| `structured`, `retries` | `prompt` (default): the prompts describe the JSON, and a reply GBC's reader cannot read as the schema's object is asked again up to `retries` (1) times; `grammar`: vLLM's structured outputs constrain decoding to the schema; `kohaku`: KohakuvLLM's grammar logits processor does (the entry adds it to the engine's `logits_processors`) |
+| `structured`, `retries` | `kohaku` (default): KohakuvLLM's grammar logits processor constrains decoding to the schema (the entry adds it to the engine's `logits_processors`); `grammar`: vLLM's structured outputs do; `prompt`: the prompts describe the JSON, and a reply GBC's reader cannot read as the schema's object is asked again up to `retries` (1) times |
 | `engine_args`, `sampling` | any other `AsyncEngineArgs` field; extra `SamplingParams` fields |
 | `stats_s` | vLLM's stats line every that many seconds (0: off) |
 | `frontend`, `frontend_args`, `frontend_gb` | `vllm` (default): vLLM's own input processing and image encoder; `kohakuvllm`: KohakuvLLM's frontend, requests prepared in worker processes (`workers`) and images encoded by its vision tower in this process (`vision_fp8`, `max_patches`), handed to the engine as token ids and image embeddings; the tower's reservation in GiB (1.5) |
