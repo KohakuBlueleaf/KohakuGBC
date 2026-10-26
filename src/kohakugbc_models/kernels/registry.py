@@ -84,8 +84,8 @@ def register_probe(backend: str, probe: Callable[[str], str | None]) -> None:
 
 
 def load_backends() -> None:
-    """Import every backend package once per process; a failed import marks the backend
-    unavailable (the rest still register)."""
+    """Import every backend package once per process; an import that raises anything marks the
+    backend unavailable (the rest still register)."""
     if _LOADED:
         return
     with _LOAD:
@@ -94,7 +94,7 @@ def load_backends() -> None:
         for name in BACKENDS:
             try:
                 importlib.import_module(f"kohakugbc_models.kernels.backends.{name}")
-            except ImportError as err:
+            except Exception as err:  # noqa: BLE001 - one backend never takes the others down
                 UNAVAILABLE[name] = f"{type(err).__name__}: {err}"
         _LOADED.append(True)
 

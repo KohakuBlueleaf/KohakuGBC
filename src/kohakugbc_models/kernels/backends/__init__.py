@@ -1,6 +1,7 @@
 """Kernel backends. Each backend package imports every public module of its tree on import
-(``load_tree``); a module whose import raises ``ImportError`` is listed in the package's
-``FAILED`` and the rest still register."""
+(``load_tree``); a module whose import raises (a missing library, or a toolchain whose API
+differs, e.g. an older Gluon) is listed in the package's ``FAILED`` and the rest still
+register."""
 
 import importlib
 import logging
@@ -17,7 +18,7 @@ def load_tree(package: str, path) -> dict[str, str]:
             continue
         try:
             importlib.import_module(info.name)
-        except ImportError as err:
+        except Exception as err:  # noqa: BLE001 - one module never takes the others down
             failed[info.name] = f"{type(err).__name__}: {err}"
             log.warning("kernel module %s not loaded: %s", info.name, err)
     return failed
