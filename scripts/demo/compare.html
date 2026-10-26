@@ -1,0 +1,309 @@
+<title>__TITLE__</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans+Condensed:wght@600&display=swap">
+<style>
+/* Layout: a summary table, then the image captions, then one column per run (image + tree) */
+:root {
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --ink: #1a1e24;
+  --muted: #5d6673;
+  --line: #d9dde3;
+  --accent: #2a55b8;
+  --hl: rgba(42, 85, 184, 0.10);
+  --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", "IBM Plex Sans", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101317; --surface: #171b21; --ink: #e5e8ed; --muted: #98a1ad; --line: #2b3139;
+    --accent: #85a6ff; --hl: rgba(133, 166, 255, 0.14); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #101317; --surface: #171b21; --ink: #e5e8ed; --muted: #98a1ad; --line: #2b3139;
+  --accent: #85a6ff; --hl: rgba(133, 166, 255, 0.14); color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font: 15px/1.55 var(--sans);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 56px;
+}
+main { max-width: 1680px; margin: 0 auto; display: grid; gap: 36px; }
+header { display: grid; gap: 10px; }
+h1 { font: 600 30px/1.15 var(--display); letter-spacing: -0.01em; margin: 0; text-wrap: balance; }
+h2 {
+  font: 600 13px/1 var(--sans); text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted); margin: 0 0 12px;
+}
+.lede { color: var(--muted); margin: 0; max-width: 72ch; }
+.picker { display: flex; flex-wrap: wrap; gap: 8px; }
+.picker button {
+  border: 2px solid var(--line); border-radius: 6px; padding: 0; background: var(--surface);
+  cursor: pointer; width: 84px; height: 64px; overflow: hidden;
+}
+.picker button img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.picker button[aria-pressed="true"] { border-color: var(--accent); }
+.picker button:focus-visible, .node:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips button {
+  font: 500 13px var(--sans); padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+}
+.chips button[aria-pressed="true"] { border-color: var(--accent); color: var(--ink); background: var(--hl); }
+.chips button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; background: var(--surface); }
+th, td { padding: 8px 12px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+thead th { font-size: 12px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+td.model { font-weight: 600; }
+td .q { font: 12px var(--mono); color: var(--muted); margin-left: 6px; }
+.runs { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); }
+.col { min-width: 0; display: grid; gap: 14px; align-content: start; }
+.col h3 { margin: 0; font: 600 20px/1.2 var(--display); }
+.col h3 .q { font: 12px var(--mono); color: var(--muted); margin-left: 8px; font-weight: 400; }
+.cap { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; }
+.cap p { margin: 0 0 10px; }
+.cap p:last-child { margin-bottom: 0; }
+.tag {
+  font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+  margin-right: 6px;
+}
+.ph { font-weight: 600; border-bottom: 2.5px solid var(--c); }
+figure { margin: 0; position: relative; line-height: 0; }
+figure img { width: 100%; height: auto; border-radius: 4px; }
+figure svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+figure rect { fill: none; stroke-width: 3; vector-effect: non-scaling-stroke; transition: opacity .15s; }
+figure rect.part { stroke-dasharray: 6 4; stroke-width: 2; }
+figure.focus rect { opacity: 0.12; }
+figure.focus rect.on { opacity: 1; stroke-width: 4; }
+.tree { display: grid; gap: 2px; }
+.node {
+  display: grid; gap: 2px; padding: 8px 10px 8px calc(10px + var(--d) * 18px);
+  border-radius: 4px; cursor: default;
+}
+.node:hover, .node.on { background: var(--hl); }
+.node .head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.sw { width: 10px; height: 10px; border-radius: 2px; background: var(--c); flex: none; align-self: center; }
+.name { font-weight: 600; }
+.kind { font: 11px var(--mono); color: var(--muted); }
+.desc { font-size: 14px; color: var(--ink); min-width: 0; margin: 2px 0 0; }
+.desc .tag { font-size: 10px; }
+.rel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; display: grid; gap: 8px; }
+.rel .name { font: 500 13px var(--mono); }
+.empty { color: var(--muted); font-style: italic; }
+@media (prefers-reduced-motion: reduce) { figure rect { transition: none; } }
+</style>
+
+<main id="app">
+  <header>
+    <h1 id="title"></h1>
+    <p class="lede" id="lede"></p>
+    <div class="picker" id="picker" role="group" aria-label="Image"></div>
+    <div class="chips" id="chips" role="group" aria-label="Runs shown"></div>
+  </header>
+  <section>
+    <h2>At a glance</h2>
+    <div class="scroll"><table id="glance"></table></div>
+  </section>
+  <section>
+    <h2>Image captions</h2>
+    <div class="runs" id="captions"></div>
+  </section>
+  <section>
+    <h2>Graphs</h2>
+    <p class="lede" style="margin-bottom:14px">Hover a vertex to find its box. Parts are dashed;
+      an object, its parts and its instances share one colour.</p>
+    <div class="runs" id="graphs"></div>
+  </section>
+</main>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const DATA = JSON.parse(document.getElementById("data").textContent);
+const PALETTE = ["#e6550d", "#3182bd", "#31a354", "#9e5fd1", "#d6616b", "#17a2b8", "#b8a000",
+  "#8c564b", "#e377c2", "#2f4b7c", "#637939", "#7f7f7f"];
+const KIND = { short: "Short", detail: "Detailed", composition: "Composition", relation: "Relation" };
+const NEUTRAL = "#7d8794";
+
+function el(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "style") Object.assign(e.style, v);
+    else if (k.startsWith("--")) e.style.setProperty(k, v);
+    else e.setAttribute(k, v);
+  }
+  for (const k of kids.flat()) e.append(k instanceof Node ? k : document.createTextNode(String(k)));
+  return e;
+}
+
+/* The graph's facts: vertices by id, names, colours, the tree under the image vertex */
+function facts(graph) {
+  const by = Object.fromEntries(graph.vertices.map(v => [v.vertex_id, v]));
+  const kids = id => [...new Set(by[id].out_edges.map(e => e.target))]
+    .filter(t => t !== id && by[t] && by[t].label !== "relation");
+  const name = { "": "image" };
+  for (const v of graph.vertices) for (const e of v.out_edges)
+    if (by[e.target] && by[e.target].label !== "relation" && !(e.target in name)) name[e.target] = e.text;
+  for (const v of graph.vertices) {
+    if (v.label === "relation") name[v.vertex_id] = v.out_edges.map(e => e.text).join(" / ");
+    if (!(v.vertex_id in name)) name[v.vertex_id] = v.vertex_id;
+  }
+  const colour = {}; let n = 0;
+  const queue = [];
+  for (const t of kids("")) if (!(t in colour)) { colour[t] = PALETTE[n++ % PALETTE.length]; queue.push(t); }
+  while (queue.length) { const u = queue.shift(); for (const t of kids(u)) if (!(t in colour)) { colour[t] = colour[u]; queue.push(t); } }
+  const order = [], seen = new Set([""]), depth = { "": 0 };
+  (function walk(u, d) {
+    for (const t of kids(u)) {
+      if (seen.has(t)) continue;
+      seen.add(t); depth[t] = d + 1; order.push([t, d + 1, u]); walk(t, d + 1);
+    }
+  })("", 0);
+  const parentKind = {};
+  for (const [t, , p] of order) parentKind[t] = by[p].label;
+  const labels = {};
+  for (const v of graph.vertices) labels[v.label] = (labels[v.label] || 0) + 1;
+  let captions = 0, words = 0, edges = 0;
+  for (const v of graph.vertices) {
+    captions += v.descs.length; edges += v.out_edges.length;
+    for (const d of v.descs) words += d.text.split(/\s+/).filter(Boolean).length;
+  }
+  return { by, name, colour, order, parentKind, labels, captions, words, edges,
+    depth: Math.max(0, ...Object.values(depth)) };
+}
+
+/* A caption with each grounded phrase marked in its child's colour */
+function caption(v, f) {
+  const text = v.text, low = text.toLowerCase(), marks = [];
+  for (const e of f.by[v.owner].out_edges) {
+    const phrase = e.text.toLowerCase();
+    let at = low.indexOf(phrase);
+    while (at >= 0 && marks.some(([s, t]) => s < at + phrase.length && at < t)) at = low.indexOf(phrase, at + 1);
+    if (at >= 0 && phrase) marks.push([at, at + phrase.length, f.colour[e.target] || NEUTRAL]);
+  }
+  marks.sort((a, b) => a[0] - b[0]);
+  const out = []; let i = 0;
+  for (const [s, t, c] of marks) { out.push(text.slice(i, s), el("span", { class: "ph", "--c": c }, text.slice(s, t))); i = t; }
+  out.push(text.slice(i));
+  return out;
+}
+
+function descs(vertex, f, want) {
+  return vertex.descs.filter(d => !want || want.includes(d.label)).map(d =>
+    el("p", { class: "desc" }, el("span", { class: "tag" }, KIND[d.label] || d.label),
+      caption({ text: d.text, owner: vertex.vertex_id }, f)));
+}
+
+function label(run) {
+  return [run.meta.model || run.meta.label, run.meta.quant ? el("span", { class: "q" }, run.meta.quant) : ""];
+}
+
+const shown = new Set(DATA.runs.map((_, i) => i));
+let current = null;
+
+function render(key) {
+  current = key;
+  const img = DATA.images[key];
+  const runs = DATA.runs.filter((_, i) => shown.has(i)).map(r => ({ run: r, graph: r.graphs[key] }));
+  const fs = runs.map(x => x.graph ? facts(x.graph) : null);
+
+  document.querySelectorAll(".picker button").forEach(b => b.setAttribute("aria-pressed", b.dataset.key === key));
+
+  const glance = document.getElementById("glance");
+  glance.replaceChildren(
+    el("thead", {}, el("tr", {}, ["Model", "Vertices", "Entities", "Compositions", "Relations",
+      "Edges", "Captions", "Caption words", "Depth"].map(h => el("th", {}, h)))),
+    el("tbody", {}, runs.map(({ run }, i) => {
+      const f = fs[i];
+      if (!f) return el("tr", {}, el("td", { class: "model" }, label(run)), el("td", { colspan: 8, class: "empty" }, "no graph for this image"));
+      return el("tr", {}, el("td", { class: "model" }, label(run)),
+        [f.order.length + 1 + (f.labels.relation || 0), f.labels.entity || 0, f.labels.composition || 0,
+          f.labels.relation || 0, f.edges, f.captions, f.words, f.depth].map(x => el("td", {}, x)));
+    })));
+
+  document.getElementById("captions").replaceChildren(...runs.map(({ run, graph }, i) =>
+    el("div", { class: "col" }, el("h3", {}, label(run)),
+      graph ? el("div", { class: "cap" }, descs(fs[i].by[""], fs[i], ["short", "detail"]))
+        : el("p", { class: "empty" }, "no graph"))));
+
+  document.getElementById("graphs").replaceChildren(...runs.map(({ run, graph }, i) => {
+    if (!graph) return el("div", { class: "col" }, el("h3", {}, label(run)), el("p", { class: "empty" }, "no graph"));
+    const f = fs[i];
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", "0 0 1000 1000");
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("aria-hidden", "true");
+    const rects = {};
+    for (const [id] of f.order) {
+      const v = f.by[id];
+      if (v.label !== "entity" || !v.bbox) continue;
+      const b = v.bbox, r = document.createElementNS(NS, "rect");
+      r.setAttribute("x", b.left * 1000); r.setAttribute("y", b.top * 1000);
+      r.setAttribute("width", (b.right - b.left) * 1000); r.setAttribute("height", (b.bottom - b.top) * 1000);
+      r.setAttribute("stroke", f.colour[id] || NEUTRAL);
+      if (f.parentKind[id] === "entity") r.setAttribute("class", "part");
+      svg.append(r); rects[id] = r;
+    }
+    const fig = el("figure", {}, el("img", { src: img.src, alt: `${key}, boxes from ${run.meta.model || run.meta.label}`, width: img.w, height: img.h }), svg);
+    const focus = id => {
+      fig.classList.toggle("focus", !!id);
+      for (const [k, r] of Object.entries(rects)) r.classList.toggle("on", k === id);
+    };
+    const nodes = f.order.map(([id, d]) => {
+      const v = f.by[id];
+      const conf = v.bbox && v.bbox.confidence != null ? ` · ${v.bbox.confidence.toFixed(2)}` : "";
+      const n = el("div", { class: "node", tabindex: "0", "--d": d - 1, "--c": f.colour[id] || NEUTRAL },
+        el("div", { class: "head" }, el("span", { class: "sw" }), el("span", { class: "name" }, f.name[id]),
+          el("span", { class: "kind" }, v.label + conf)),
+        descs(v, f));
+      n.addEventListener("mouseenter", () => focus(id));
+      n.addEventListener("mouseleave", () => focus(null));
+      n.addEventListener("focus", () => focus(id));
+      n.addEventListener("blur", () => focus(null));
+      return n;
+    });
+    const relations = graph.vertices.filter(v => v.label === "relation");
+    return el("div", { class: "col" }, el("h3", {}, label(run)), fig,
+      el("div", { class: "tree" }, nodes),
+      relations.length ? el("h2", { style: { marginTop: "8px" } }, `Relations (${relations.length})`) : "",
+      relations.map(v => el("div", { class: "rel" }, el("span", { class: "name" }, f.name[v.vertex_id]), descs(v, f))));
+  }));
+  try { localStorage.setItem("gbc-compare-key", key); } catch (e) {}
+}
+
+document.getElementById("title").textContent = DATA.title;
+document.getElementById("lede").textContent =
+  `The same GBC program, detector and embedder on ${DATA.keys.length === 1 ? "one image" : DATA.keys.length + " images"}; ` +
+  `only the VLM changes: ${DATA.runs.map(r => [r.meta.model || r.meta.label, r.meta.quant].filter(Boolean).join(" ")).join(", ")}.` +
+  (DATA.runs.some(r => r.meta.note) ? " " + DATA.runs.map(r => r.meta.note).filter(Boolean).join(" ") : "");
+const picker = document.getElementById("picker");
+if (DATA.keys.length > 1) {
+  for (const k of DATA.keys) {
+    const b = el("button", { type: "button", "data-key": k, "aria-label": k, "aria-pressed": "false" },
+      el("img", { src: DATA.images[k].src, alt: "" }));
+    b.addEventListener("click", () => render(k));
+    picker.append(b);
+  }
+} else picker.hidden = true;
+const chips = document.getElementById("chips");
+DATA.runs.forEach((r, i) => {
+  const b = el("button", { type: "button", "aria-pressed": "true" },
+    [r.meta.model || r.meta.label, r.meta.quant].filter(Boolean).join(" · "));
+  b.addEventListener("click", () => {
+    if (shown.has(i) && shown.size > 1) shown.delete(i); else shown.add(i);
+    b.setAttribute("aria-pressed", shown.has(i));
+    render(current);
+  });
+  chips.append(b);
+});
+let first = DATA.keys[0];
+try { const k = localStorage.getItem("gbc-compare-key"); if (k && DATA.keys.includes(k)) first = k; } catch (e) {}
+render(first);
+</script>
