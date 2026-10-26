@@ -1,5 +1,6 @@
-"""The device a kernel runs on: its arch name (the backend priority's key) and its card key
-(the tuning tables' key), and the cache directory."""
+"""The device a kernel runs on: its arch name and arch family (the backend priority's keys, the
+family also each kernel's tile set) and its card key (the tuning tables' key), and the cache
+directory."""
 
 import os
 import re
@@ -36,6 +37,22 @@ def arch_of(device) -> str:
     return device.type
 
 
+# Arch families sharing one set of kernels: sm10x the datacenter Blackwell cards (B200 sm100,
+# B300 sm103; 228 KiB of shared memory per SM, tcgen05), sm12x the consumer ones (RTX 50xx
+# sm120, DGX Spark sm121; about 100 KiB)
+FAMILIES = {"sm10x": ("sm100", "sm101", "sm103"), "sm12x": ("sm120", "sm121")}
+
+
+def family_of(arch: str) -> str:
+    """The family an arch's kernels come from (``FAMILIES``), else the arch itself."""
+    return next((f for f, members in FAMILIES.items() if arch in members), arch)
+
+
+def family(device) -> str:
+    """The kernel family of a device."""
+    return family_of(arch_of(device))
+
+
 @cache
 def card_key(device: str) -> str:
     """``<card>-<arch>-<cuda>-<torch>``: tables are valid for one card and toolchain."""
@@ -66,3 +83,9 @@ def synchronize(device) -> None:
             torch.cuda.synchronize(device)
     elif device.type == "xpu":
         torch.xpu.synchronize(device)
+
+
+def tiles_for(device, base: list, extra: dict) -> list:
+    """A kernel's tile candidates on a device: ``base`` (every family's), plus ``extra[f]`` for
+    the device's family ``f`` (sm10x: tiles and stages only its shared memory holds)."""
+    return base + extra.get(family(device), [])

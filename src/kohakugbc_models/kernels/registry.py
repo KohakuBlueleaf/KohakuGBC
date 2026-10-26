@@ -25,9 +25,9 @@ from dataclasses import dataclass
 import torch
 
 from kohakugbc_models.kernels.errors import BackendUnavailable, is_backend_failure
-from kohakugbc_models.kernels.hardware import arch_of
+from kohakugbc_models.kernels.hardware import arch_of, family_of
 
-BACKENDS = ("tilelang", "triton", "compile", "eager")
+BACKENDS = ("gluon", "tilelang", "triton", "compile", "eager")
 PRIORITY: dict[str, tuple[str, ...]] = {
     "sm70": ("tilelang", "compile", "eager"),
     "sm75": ("tilelang", "compile", "eager"),
@@ -35,8 +35,8 @@ PRIORITY: dict[str, tuple[str, ...]] = {
     "sm86": ("triton", "tilelang", "compile", "eager"),
     "sm89": ("triton", "tilelang", "compile", "eager"),
     "sm90": ("triton", "tilelang", "compile", "eager"),
-    "sm100": ("triton", "tilelang", "compile", "eager"),
-    "sm120": ("triton", "tilelang", "compile", "eager"),
+    "sm10x": ("gluon", "triton", "tilelang", "compile", "eager"),
+    "sm12x": ("triton", "tilelang", "compile", "eager"),
     "xpu": ("triton", "compile", "eager"),
     "cpu": ("eager",),
 }
@@ -185,8 +185,13 @@ class Bound:
         )
 
 
+def priority(arch: str) -> tuple[str, ...]:
+    """The backend order of an arch: its own entry, else its family's, else compile and eager."""
+    return PRIORITY.get(arch) or PRIORITY.get(family_of(arch), ("compile", "eager"))
+
+
 def resolve(op: str, device, dtype: torch.dtype, backend: str | None = None, **static) -> Bound:
     load_backends()
     query = Query(op, arch_of(device), dtype, tuple(sorted(static.items())))
-    order = (backend,) if backend else PRIORITY.get(query.arch, ("compile", "eager"))
+    order = (backend,) if backend else priority(query.arch)
     return Bound(query, device, order, first(query, device, order))

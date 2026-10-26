@@ -13,6 +13,7 @@ from kohakugbc_models.kernels import registry, tuning
 from kohakugbc_models.kernels.backends.compile import compiled
 from kohakugbc_models.kernels.backends.eager import attention as eager
 from kohakugbc_models.kernels.backends.triton.attention._kernels import attn_fwd, vit_fwd, vit_rope
+from kohakugbc_models.kernels.hardware import tiles_for
 
 DTYPES = (torch.bfloat16, torch.float16)
 TILES = [
@@ -23,6 +24,18 @@ TILES = [
     for s in (2, 3)
     if not (bm == 128 and w == 4 and bn == 128)
 ]
+# sm10x: larger query / key blocks and deeper pipelines (228 KiB of shared memory per SM)
+EXTRA = {
+    "sm10x": [
+        {"BM": bm, "BN": bn, "num_warps": w, "num_stages": s}
+        for bm, bn, w, s in (
+            (128, 128, 8, 4),
+            (128, 256, 8, 2),
+            (256, 64, 8, 3),
+            (256, 128, 16, 2),
+        )
+    ]
+}
 PYTORCH = [{"path": "torch"}, {"path": "compile"}]
 _BOUND: dict[tuple, object] = {}
 
@@ -45,9 +58,8 @@ def supports(query) -> str | None:
 
 def choose(op: str, key: str, device, run_tile, run_torch, tiles=None) -> object:
     """The bound config of ``(op, key)``: a tile config or a PyTorch path."""
-    return choose_in(
-        op, key, device, run_tile, run_torch, (TILES if tiles is None else tiles) + PYTORCH
-    )
+    tiles = tiles_for(device, TILES, EXTRA) if tiles is None else tiles
+    return choose_in(op, key, device, run_tile, run_torch, tiles + PYTORCH)
 
 
 def choose_in(op: str, key: str, device, run_tile, run_torch, candidates: list) -> object:
@@ -71,6 +83,9 @@ def choose_in(op: str, key: str, device, run_tile, run_torch, candidates: list) 
 # ``fused``: q / k rotated inside the attention kernel (every query block re-rotates every key
 # tile); ``pass``: rotated once by ``vit_rope``, then attention without RoPE
 VIT_TILES = [{**t, "rope": r} for t in TILES for r in ("fused", "pass")]
+VIT_EXTRA = {
+    f: [{**t, "rope": r} for t in ts for r in ("fused", "pass")] for f, ts in EXTRA.items()
+}
 ROPE_ROWS = 32
 
 
@@ -138,7 +153,8 @@ def vit_attention(q, k, v, cos, sin, window: int, rotated: bool = False) -> torc
         return lambda: fn(q, k, v, cos, sin, window, rotated)
 
     # Rotated operands have no RoPE choice to make: only the tiles' first RoPE variant
-    tiles = [t for t in VIT_TILES if t["rope"] == "pass"] if rotated else VIT_TILES
+    tiles = tiles_for(q.device, VIT_TILES, VIT_EXTRA)
+    tiles = [t for t in tiles if t["rope"] == "pass"] if rotated else tiles
     key = f"{q.dtype}-h{heads}-d{dim}-s{size}-w{window}-b{bucket(batch)}-r{int(rotated)}"
     config = choose("vit_attention", key, q.device, tile, path, tiles)
     return path(config["path"])() if "path" in config else tile(config)()

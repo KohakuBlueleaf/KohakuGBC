@@ -16,6 +16,7 @@ from kohakugbc_models.kernels.backends.eager import blocks as eager
 from kohakugbc_models.kernels.backends.triton.attention._kernels import vit_rope
 from kohakugbc_models.kernels.backends.triton.attention.entry import ROPE_ROWS, bucket, choose_in
 from kohakugbc_models.kernels.backends.triton.blocks import _kernels
+from kohakugbc_models.kernels.hardware import tiles_for
 
 DTYPES = (torch.bfloat16, torch.float16)
 ACT = {"none": 0, "gelu": 1, "relu": 2}
@@ -40,6 +41,19 @@ GEMM_TILES = [
         (64, 128, 32, 4, 5),
     )
 ]
+# sm10x: 256-wide tiles with deeper pipelines (228 KiB of shared memory per SM)
+GEMM_EXTRA = {
+    "sm10x": [
+        {"BM": bm, "BN": bn, "BK": bk, "num_warps": w, "num_stages": s, "GROUP": 8}
+        for bm, bn, bk, w, s in (
+            (256, 128, 64, 8, 4),
+            (128, 256, 64, 8, 4),
+            (256, 256, 64, 8, 3),
+            (256, 256, 64, 16, 3),
+            (128, 128, 128, 8, 3),
+        )
+    ]
+}
 NORM_TILES = [{"RB": rb, "num_warps": w} for rb in (1, 2, 4, 8, 16) for w in (1, 2, 4, 8)]
 PYTORCH = [{"path": "torch"}, {"path": "compile"}]
 
@@ -109,7 +123,8 @@ def linear_act(x, w, b, act: str = "none") -> torch.Tensor:
         return lambda: fn(x, w, b, act)
 
     key = f"{x.dtype}-m{bucket(m)}-n{n}-k{k}-{act}-b{int(b is not None)}"
-    config = choose_in("linear_act", key, x.device, tile, path, GEMM_TILES + PYTORCH)
+    tiles = tiles_for(x.device, GEMM_TILES, GEMM_EXTRA)
+    config = choose_in("linear_act", key, x.device, tile, path, tiles + PYTORCH)
     return path(config["path"])() if "path" in config else tile(config)()
 
 
@@ -162,7 +177,7 @@ def qkv_rope(x, w, b, cos, sin, window: int) -> tuple:
         fn = pytorch_path("qkv_rope", name)
         return lambda: fn(x, w, b, cos, sin, window)
 
-    candidates = GEMM_TILES + [{"path": "split"}] + PYTORCH
+    candidates = tiles_for(x.device, GEMM_TILES, GEMM_EXTRA) + [{"path": "split"}] + PYTORCH
     key = f"{x.dtype}-c{channels}-d{dim}-s{size}-w{window}-b{bucket(batch)}"
     config = choose_in("qkv_rope", key, x.device, tile, path, candidates)
     return path(config["path"])() if "path" in config else tile(config)()

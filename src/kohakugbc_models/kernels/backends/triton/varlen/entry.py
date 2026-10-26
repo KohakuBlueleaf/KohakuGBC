@@ -10,6 +10,7 @@ from kohakugbc_models.kernels.backends.eager import varlen as eager
 from kohakugbc_models.kernels.backends.triton.attention.entry import bucket, choose_in
 from kohakugbc_models.kernels.backends.triton.varlen._kernels import segment_mean as segment_kernel
 from kohakugbc_models.kernels.backends.triton.varlen._kernels import varlen_fwd
+from kohakugbc_models.kernels.hardware import tiles_for
 
 DTYPES = (torch.bfloat16, torch.float16)
 TILES = [
@@ -23,6 +24,13 @@ TILES = [
         (64, 32, 8, 1),
     )
 ]
+# sm10x: larger blocks (228 KiB of shared memory per SM)
+EXTRA = {
+    "sm10x": [
+        {"BM": bm, "BN": bn, "num_warps": w, "num_stages": s}
+        for bm, bn, w, s in ((128, 64, 8, 2), (64, 128, 8, 2), (128, 128, 8, 2), (64, 64, 4, 3))
+    ]
+}
 MEAN_TILES = [{"BT": bt, "BC": bc, "num_warps": w} for bt, bc, w in ((16, 256, 4), (32, 128, 4))]
 PYTORCH = [{"path": "torch"}, {"path": "compile"}]
 
@@ -76,7 +84,8 @@ def varlen_attention(q, k, v, start, end, window: int, scale: float) -> torch.Te
         return lambda: fn(q, k, v, start, end, window, scale)
 
     key = f"{q.dtype}-h{heads}-g{heads // k.shape[1]}-d{dim}-w{int(window > 0)}-t{bucket(total)}"
-    config = choose_in("varlen_attention", key, q.device, tile, path, TILES + PYTORCH)
+    tiles = tiles_for(q.device, TILES, EXTRA)
+    config = choose_in("varlen_attention", key, q.device, tile, path, tiles + PYTORCH)
     return path(config["path"])() if "path" in config else tile(config)()
 
 

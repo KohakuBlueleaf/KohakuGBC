@@ -168,7 +168,8 @@ def cublas_rowwise(device) -> bool:
 
 def mm(xq, xs, wq, ws, recipe: str, bias=None, out_dtype=torch.bfloat16) -> torch.Tensor:
     """``x @ w.T + bias`` from e4m3 operands: ``xq`` ``[M, K]`` with its scales as the quant
-    ops give them, ``wq`` / ``ws`` as ``quantize_weight`` gives them."""
+    ops give them (``mx``: natural ``[M, K / 32]``, or already blocked, flat), ``wq`` / ``ws`` as
+    ``quantize_weight`` gives them."""
     if recipe == "row":
         if cublas_rowwise(xq.device):
             return torch._scaled_mm(xq, wq.t(), xs, ws, bias=bias, out_dtype=out_dtype)
@@ -195,7 +196,7 @@ def mm(xq, xs, wq, ws, recipe: str, bias=None, out_dtype=torch.bfloat16) -> torc
     return F.scaled_mm(
         xq,
         wq.t(),
-        to_blocked(xs).view(torch.float8_e8m0fnu),
+        xs if xs.dim() == 1 else to_blocked(xs).view(torch.float8_e8m0fnu),
         F.ScalingType.BlockWise1x32,
         ws,
         F.ScalingType.BlockWise1x32,

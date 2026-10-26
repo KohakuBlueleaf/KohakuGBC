@@ -6,6 +6,7 @@ import triton
 from kohakugbc_models.kernels import registry
 from kohakugbc_models.kernels.backends.triton.attention.entry import bucket, choose_in
 from kohakugbc_models.kernels.backends.triton.fp8gemm import _kernels
+from kohakugbc_models.kernels.hardware import tiles_for
 
 TILES = [
     {"BM": bm, "BN": bn, "BK": bk, "num_warps": w, "num_stages": s, "GROUP": 8}
@@ -18,6 +19,13 @@ TILES = [
         (64, 64, 128, 4, 3),
     )
 ]
+# sm10x: 256-wide tiles with K 128 (228 KiB of shared memory per SM)
+EXTRA = {
+    "sm10x": [
+        {"BM": bm, "BN": bn, "BK": bk, "num_warps": w, "num_stages": s, "GROUP": 8}
+        for bm, bn, bk, w, s in ((128, 256, 128, 8, 3), (256, 128, 128, 8, 3), (256, 256, 64, 8, 3))
+    ]
+}
 
 
 def rowwise_mm(xq, xs, wq, ws, bias=None, out_dtype=torch.bfloat16) -> torch.Tensor:
@@ -57,7 +65,9 @@ def rowwise_mm(xq, xs, wq, ws, bias=None, out_dtype=torch.bfloat16) -> torch.Ten
         return run
 
     key = f"m{bucket(m)}-n{n}-k{k}-{out_dtype}"
-    config = choose_in("fp8_rowwise_mm", key, xq.device, tile, None, TILES)
+    config = choose_in(
+        "fp8_rowwise_mm", key, xq.device, tile, None, tiles_for(xq.device, TILES, EXTRA)
+    )
     return tile(config)()
 
 

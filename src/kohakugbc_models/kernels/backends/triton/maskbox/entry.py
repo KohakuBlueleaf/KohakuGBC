@@ -12,6 +12,7 @@ from kohakugbc_models.kernels.backends.compile import compiled
 from kohakugbc_models.kernels.backends.eager import mask_box as eager
 from kohakugbc_models.kernels.backends.triton.attention.entry import bucket, choose_in
 from kohakugbc_models.kernels.backends.triton.maskbox._kernels import mask_box_fwd
+from kohakugbc_models.kernels.hardware import tiles_for
 
 DTYPES = (torch.bfloat16, torch.float16)
 TILES = [
@@ -24,6 +25,13 @@ TILES = [
         (64, 128, 32, 4, 4),
     )
 ]
+# sm10x: larger query / pixel blocks with deeper pipelines (228 KiB of shared memory per SM)
+EXTRA = {
+    "sm10x": [
+        {"BQ": bq, "BP": bp, "BC": bc, "num_warps": w, "num_stages": s}
+        for bq, bp, bc, w, s in ((128, 128, 64, 8, 3), (128, 128, 64, 8, 4), (64, 256, 64, 8, 3))
+    ]
+}
 PYTORCH = [{"path": "torch"}, {"path": "compile"}]
 SPLIT = True  # the folded queries as hi + lo 16-bit parts (see _kernels)
 
@@ -90,7 +98,8 @@ def mask_box(emb, pixels, weight, bias, threshold: float) -> tuple:
         return lambda: fn(emb, pixels, weight, bias, threshold)
 
     key = f"{emb.dtype}-q{queries}-c{channels}-g{height}x{width}-b{bucket(batch)}"
-    config = choose_in("mask_box", key, emb.device, tile, path, TILES + PYTORCH)
+    tiles = tiles_for(emb.device, TILES, EXTRA)
+    config = choose_in("mask_box", key, emb.device, tile, path, tiles + PYTORCH)
     return path(config["path"])() if "path" in config else tile(config)()
 
 
