@@ -76,6 +76,27 @@ pixels), the input of that script, which compiles it into the one-line model pro
 graphs (4,332 items) the compiled boxes equal the boxes the GBC text writes for the same
 vertices, in Python and Rust.
 
+## Detail levels
+
+`kohakugbc.graph.prompt.detail` shows each vertex at a sampled level, a child never above its
+parents:
+
+| level | shows |
+|---|---|
+| 6 | long caption + tags + box |
+| 5 | short caption + tags + box |
+| 4 | tags + box, or long caption + box |
+| 3 | short caption + box |
+| 2 | handle + box |
+| 1 | handle |
+
+`sample_levels` walks the DAG parents first; each vertex starts at its parents' lowest level
+and steps down one level per failed `keep` draw (0.6 by default; the root at 6 unless given).
+`apply_levels` builds the DAG those levels show. A short caption is the vertex's `short` desc,
+else the first sentence of its long caption. No vertex is dropped and relation lines stay.
+On 100 graphs x 50 seeds: no child is above a parent, each vertex shows exactly its level's
+parts, and every text parses back to the same tree.
+
 The Rust side reads text by Python's rules (`str.isspace`, `strip`, `splitlines`), so the same
 text gives the same DAG in both implementations.
 
