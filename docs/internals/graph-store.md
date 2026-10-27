@@ -1,15 +1,16 @@
 # Graph store and graph prompts
 
-Two native parts in `kohakugbc._rs`, each matched against a Python reference:
+Two native parts in `kohakugbc_data._rs` (package `kohakugbc-data`, `packages/kohakugbc-data`),
+each matched against a Python reference:
 
 - `GbcGraph`: one answer line (or bare graph) held in Rust, read from JSON or msgpack and
   written as either.
 - `PromptDag` and `GbcGraph.prompt`: the graph as prompt text and back, the Rust port of
-  `kohakugbc.graph.prompt`.
+  `kohakugbc_data.prompt`.
 
 ## The stored record
 
-`src/kohakugbc-rust/store/record.rs`. msgpack carries it as positional arrays (`rmp-serde`, the
+`packages/kohakugbc-data/rust/store/record.rs`. msgpack carries it as positional arrays (`rmp-serde`, the
 codec KohakuVault's `DataPacker("msgpack")` uses) inside a zstd frame: `to_msgpack()` writes
 level 3, `to_msgpack(zstd=None)` plain msgpack, and `from_msgpack` reads either (it tells them
 apart by the zstd magic).
@@ -70,7 +71,7 @@ Placement and boxes:
   MOSS-Image's own `skills/moss-image-prompt-enhancer/scripts/compile_prompt.py`; `nearest`:
   half to even.
 
-`kohakugbc.graph.prompt.to_moss` writes the MOSS-Image Layout draft (`summary` with `meta`,
+`kohakugbc_data.prompt.to_moss` writes the MOSS-Image Layout draft (`summary` with `meta`,
 `canvas`, `caption`; flat `items` with `label`, `caption`, `tags`, `bbox`; `abs` / `xyxy`
 pixels), the input of that script, which compiles it into the one-line model prompt. On 360
 graphs (4,332 items) the compiled boxes equal the boxes the GBC text writes for the same
@@ -78,7 +79,7 @@ vertices, in Python and Rust.
 
 ## Detail levels
 
-`kohakugbc.graph.prompt.detail` shows each vertex at a sampled level, a child never above its
+`kohakugbc_data.prompt.detail` shows each vertex at a sampled level, a child never above its
 parents:
 
 | level | shows |

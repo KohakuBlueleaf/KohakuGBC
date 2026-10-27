@@ -53,6 +53,7 @@ call the sequential run cannot tell apart, and turns their model calls into batc
 ## Install
 
 ```
+pip install kohakugbc-data            # graphs and datasets only: no machine, no GPU stack
 pip install kohakugbc                 # program, machine, API and replay engines
 pip install "kohakugbc[torch]"        # detector (OWLv2, SAM 3) and embedder on torch
 pip install "kohakugbc[vllm]"         # the VLM in-process through vLLM (Linux)
@@ -60,13 +61,19 @@ pip install "kohakuvllm @ git+https://github.com/KohakuBlueleaf/KohakuvLLM"   # 
 pip install "kohakugbc[qwen35]"       # the qwen35 VLM engine (Windows and Linux)
 ```
 
-Wheels carry the Rust extension `kohakugbc._rs` (graph resolution). From a clone, with a Rust
-toolchain:
+Two packages from this repo:
+
+- `kohakugbc-data` (`packages/kohakugbc-data`, on PyPI): the GBC graph (store, resolution,
+  prompt rendering) and the GBC dataset format, with its Rust extension; depends on numpy,
+  pillow, pyarrow and kohakuvault only. Training code and dataset tools use this alone.
+- `kohakugbc` (pure Python): the program, machine and engines, on top of `kohakugbc-data`.
+
+From a clone, with a Rust toolchain:
 
 ```
 git clone https://github.com/KohakuBlueleaf/KohakuGBC && cd KohakuGBC
 uv venv -p 3.13
-uv pip install -e ".[torch,qwen35,dev]"   # add torch from the index matching your driver
+uv pip install -e packages/kohakugbc-data -e ".[torch,qwen35,dev]"   # torch: the index matching your driver
 gbc doctor
 ```
 
@@ -151,7 +158,7 @@ with machine:
 
 | Layer | Package | Holds |
 |---|---|---|
-| GBC program | `kohakugbc.program`, `kohakugbc.nodes`, `kohakugbc.graph` | `gbc.kir` (one image job), the node library `gbc`, controls, records and graph resolution (Python reference; Rust in `kohakugbc._rs`, equal by digest) |
+| GBC program | `kohakugbc.program`, `kohakugbc.nodes`, `kohakugbc.graph` | `gbc.kir` (one image job), the node library `gbc`, controls, records and graph resolution (Python reference; Rust in `kohakugbc-data`, equal by digest) |
 | GBC machine | `kohakugbc.machine`, `kohakugbc.io` | the program on Togeari: one lane per engine slot, bindings, admission, sources, sinks, configuration layers |
 | GBC engines | `kohakugbc.engines`, `kohakugbc_models` | entries per slot, the placement plan, engines on other nodes, replay engines for runs without models |
 
@@ -356,8 +363,8 @@ Every engine entry, with all its settings: [docs/guides/engines.md](docs/guides/
 kind, edges, captions, depth, leaves). A run report (`machine.report`) holds the configuration,
 the environment, per-second metrics of every lane and unit, events, recorded jobs and a summary.
 
-Captioned images ship as a GBC dataset (`kohakugbc.io.dataset`): sharded folders of KohakuClip
-image shards, graphs and per-image metadata in KohakuVault, joined by key
+Captioned images ship as a GBC dataset (`kohakugbc_data.dataset`, in `kohakugbc-data`): sharded
+folders of KohakuClip image shards, graphs and per-image metadata in KohakuVault, joined by key
 ([dataset format](docs/guides/dataset.md)).
 
 ## Faithful to GBC
@@ -498,9 +505,11 @@ src/kohakugbc_models/     the models GBC runs itself, standalone of the program 
   kernels/        op registry, per-card tuning, CUDA graphs, fp8; backends eager / compile /
                   triton / tilelang (attention, varlen, box bias, mask box, fp8 producers)
   numerics/       error profiles against an fp64 ruler
-src/kohakugbc-rust/       graph resolution in Rust (kohakugbc._rs)
+packages/kohakugbc-data/  the data package (PyPI kohakugbc-data)
+  rust/           kohakugbc_data._rs: graph resolution, the graph store, prompts
+  src/kohakugbc_data/     prompt/ (renderers), dataset/ (the GBC dataset format)
 configs/              machine and engine configurations
-scripts/              trace recording, benchmarks, docs figures
+scripts/              trace recording, benchmarks, docs figures; ci/ (versions, release notes)
 docs/                 concepts, guides, internals, performance
 tests/                data and format checks: program, graph, engines; fixtures: recorded PoC traces
 ```

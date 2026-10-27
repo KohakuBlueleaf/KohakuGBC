@@ -2,8 +2,8 @@
 
 A GBC dataset holds images, their GBC graphs and a free-form metadata dict per image. Every
 part is joined by one **sample key** (the image's id in its source), cut into **shards** that
-stand alone. `kohakugbc.io.dataset` writes and reads it (`pip install "kohakugbc[dataset]"`:
-kohakuvault, pyarrow).
+stand alone. The `kohakugbc-data` package writes and reads it (`kohakugbc_data.dataset`;
+`pip install kohakugbc-data`: numpy, pillow, pyarrow, kohakuvault, no captioning machine).
 
 ## Layout
 
@@ -98,16 +98,16 @@ a few hundred.
 ## Reading
 
 ```python
-from kohakugbc.io.dataset import GbcDataset, read_info, split
+from kohakugbc_data.dataset import GbcDataset, read_info, split
 
-ds = GbcDataset("danbooru-gbc-27b")       # every shard; image bytes, graph and meta
+ds = GbcDataset("danbooru-gbc-27b")  # every shard; image bytes, graph and meta
 len(ds), ds.keys()[:3], "7243972" in ds
-s = ds[0]                                 # by position (shard order) ...
-s = ds["7243972"]                         # ... or by key
-s.key, s.w, s.h, s.codec, s.image         # image: the stored bytes
-s.graph                                   # kohakugbc._rs.GbcGraph
-s.meta                                    # dict
-ds.manifest                               # pyarrow table of every row, plus "shard"
+s = ds[0]  # by position (shard order) ...
+s = ds["7243972"]  # ... or by key
+s.key, s.w, s.h, s.codec, s.image  # image: the stored bytes
+s.graph  # kohakugbc_data.GbcGraph
+s.meta  # dict
+ds.manifest  # pyarrow table of every row, plus "shard"
 ```
 
 | argument | does |
@@ -123,8 +123,9 @@ also read the images alone, with its own crops and decode threads:
 
 ```python
 from kohakuclip import ImageReader
+
 reader = ImageReader([f"{root}/shards/{n}/images.zip" for n in ds.shards], size=512, threads=16)
-batch = reader.read(list(range(256))).image   # uint8 [256, 3, 512, 512]; ids follow ds order
+batch = reader.read(list(range(256))).image  # uint8 [256, 3, 512, 512]; ids follow ds order
 ```
 
 ## Rendering for training
@@ -134,24 +135,25 @@ in `transform`:
 
 ```python
 def to_prompt(s):
-    text = s.graph.prompt(width=s.w, height=s.h)              # the GBC prompt text
-    tags = ", ".join(s.meta.get("general", [])[:30])            # whatever the meta offers
+    text = s.graph.prompt(width=s.w, height=s.h)  # the GBC prompt text
+    tags = ", ".join(s.meta.get("general", [])[:30])  # whatever the meta offers
     return s.image, f"{tags}\n{text}"
+
 
 ds = GbcDataset(root, image="pil", transform=to_prompt)
 ```
 
-`GbcGraph.prompt` / `prompt_dag` and `kohakugbc.graph.prompt` (`render`, `to_moss`, detail
+`GbcGraph.prompt` / `prompt_dag` and `kohakugbc_data.prompt` (`render`, `to_moss`, detail
 levels) are the renderers ([graph store and prompts](../internals/graph-store.md)).
 
 ## Writing
 
 ```python
-from kohakugbc.io.dataset import DatasetWriter
+from kohakugbc_data.dataset import DatasetWriter
 
 with DatasetWriter(root, shard_bytes=4 << 30, header={"name": "my-set"}) as w:
     for key, image_bytes, (width, height), codec, graph_line, meta in source:
-        w.add(key, image_bytes, width, height, codec, graph_line, meta, vertices=..., any_column=...)
+        w.add(key, image_bytes, width, height, codec, graph_line, meta, vertices=len(meta))
 ```
 
 `add(key, image, w, h, codec, graph, meta=None, **row)`: `image` is already encoded (`codec`

@@ -38,7 +38,7 @@ edges, captions, BFS depth from the roots, roots, leaves.
 ## Two implementations
 
 - `kohakugbc.graph.reference`: the Python reference, a literal port of ml-gbc's code.
-- `kohakugbc._rs.resolve` (`src/kohakugbc-rust/graph/`): written from the same definition; it
+- `kohakugbc_data._rs.resolve` (`packages/kohakugbc-data/rust/graph/`): written from the same definition; it
   resolves and serialises without the GIL and returns the graph as JSON text with its stats.
 
 `kohakugbc.graph.to_text` is the one the program uses, chosen once at import (Rust when built;

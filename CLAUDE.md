@@ -14,8 +14,10 @@ run it. Three layers, split the way Togeari splits a job:
   Qwen3.5 engine; their entries sit in `kohakugbc/engines`), `kernels/`
   their kernels (registry, per-arch backends, tuning, CUDA graphs, fp8), `numerics/` error
   profiles against an fp64 ruler.
-- `src/kohakugbc-rust/`: `kohakugbc._rs`, graph resolution in Rust (crate `Cargo.toml` at the
-  root).
+- `packages/kohakugbc-data/`: the data package, released to PyPI on its own (`data-v*` tags):
+  `rust/` (`kohakugbc_data._rs`: graph resolution, graph store, prompts; crate `Cargo.toml` in
+  the package), `src/kohakugbc_data/` (`prompt/`, `dataset/`). It imports nothing of
+  `kohakugbc`; `kohakugbc` depends on it.
 - vLLM changes (frontend or backend) live in KohakuvLLM, a separate drop-in plugin repo; this
   repo holds the engine entries and refers to it.
 - `configs/` (`engines/`, `machine/`), `scripts/` (`trace/`, `bench/`), `docs/` (`concepts/`,
@@ -24,9 +26,13 @@ run it. Three layers, split the way Togeari splits a job:
 
 ## Commands
 
-The environment is `.venv` (uv). The install builds the extension (maturin), so a change under
-`src/kohakugbc-rust/` needs `uv pip install -e ".[dev]"` again. The version lives in
-`Cargo.toml` alone.
+The environment is `.venv` (uv): `uv pip install -e packages/kohakugbc-data -e ".[dev]"`. The
+data package's install builds the extension (maturin), so a change under
+`packages/kohakugbc-data/rust/` needs `uv pip install -e packages/kohakugbc-data` again.
+Versions: `kohakugbc` in `pyproject.toml`; `kohakugbc-data` in its `pyproject.toml`
+(`scripts/ci/version.py` stamps its `Cargo.toml` to match). Releases of `kohakugbc-data`:
+`.github/workflows/data-release.yml` (the only publisher), `data-nightly.yml`,
+`data-auto-patch-release.yml`.
 
 ```
 cargo fmt --check
