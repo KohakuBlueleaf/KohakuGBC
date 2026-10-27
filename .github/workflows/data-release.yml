@@ -1,0 +1,196 @@
+name: Data Release
+
+on:
+  # Cutting a release in the GitHub UI, or pushing a data-v* tag, both publish.
+  release:
+    types: [published]
+  push:
+    tags: ["data-v*"]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag, branch or sha to release"
+        required: false
+        default: ""
+      version:
+        description: "Stamp this version before building (nightlies pass X.Y.Z.devN)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  id-token: write
+
+defaults:
+  run:
+    shell: bash
+
+# The only workflow that builds or uploads kohakugbc-data, so PyPI needs one trusted
+# publisher: this file (data-release.yml), environment `pypi`.
+jobs:
+  version:
+    name: Resolve version
+    # a GitHub release of another tag namespace is not ours
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'data-v')
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            python scripts/ci/version.py write "${{ inputs.version }}"
+          fi
+          version=$(python scripts/ci/version.py read)
+          case "${version}" in
+            *dev*|*a*|*b*|*rc*) pre=true ;;
+            *) pre=false ;;
+          esac
+          {
+            echo "version=${version}"
+            echo "prerelease=${pre}"
+          } >> "$GITHUB_OUTPUT"
+          echo "releasing kohakugbc-data ${version} (prerelease=${pre})"
+
+      # A tag that disagrees with pyproject is a mis-cut release: stop before anything is
+      # uploaded, since a PyPI filename cannot be reused.
+      - name: Tag must match pyproject
+        if: startsWith(github.ref, 'refs/tags/data-v') || github.event_name == 'release'
+        run: |
+          tag="${GITHUB_REF_NAME#data-v}"
+          test "${tag}" = "${{ steps.version.outputs.version }}" \
+            || { echo "tag ${tag} != pyproject ${{ steps.version.outputs.version }}"; exit 1; }
+
+  # abi3 (CPython 3.11+): one wheel per platform; the crate has no system dependency.
+  wheels:
+    name: Wheels (${{ matrix.os }} ${{ matrix.target }})
+    needs: [version]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        # test: the wheel runs on the runner (the others are cross-built)
+        include:
+          - { os: ubuntu-latest, target: x86_64, manylinux: "2_28", test: true }
+          - { os: ubuntu-latest, target: aarch64, manylinux: "2_28", test: false }
+          - { os: windows-latest, target: x64, manylinux: "", test: true }
+          - { os: macos-14, target: aarch64, manylinux: "", test: true }
+          - { os: macos-14, target: x86_64, manylinux: "", test: false }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Stamp the version
+        if: inputs.version != ''
+        run: python scripts/ci/version.py write "${{ inputs.version }}"
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: packages/kohakugbc-data
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux || 'auto' }}
+          args: --release --out dist
+      - name: Test the wheel in a clean venv
+        if: matrix.test
+        working-directory: packages/kohakugbc-data
+        run: |
+          python -m venv .venv-wheel
+          if [ "${RUNNER_OS}" = "Windows" ]; then . .venv-wheel/Scripts/activate; else . .venv-wheel/bin/activate; fi
+          pip install dist/*.whl pytest
+          # from tests/ only, so the import is the installed wheel, not the source tree
+          cd tests && python -m pytest -q -p no:cacheprovider --rootdir . .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.target }}
+          path: packages/kohakugbc-data/dist/*.whl
+          if-no-files-found: error
+          retention-days: 7
+
+  sdist:
+    name: Source distribution
+    needs: [version]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Stamp the version
+        if: inputs.version != ''
+        run: python scripts/ci/version.py write "${{ inputs.version }}"
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: packages/kohakugbc-data
+          command: sdist
+          args: --out dist
+      - run: pip install twine && twine check packages/kohakugbc-data/dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: packages/kohakugbc-data/dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-pypi:
+    name: Publish distributions to PyPI
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/kohakugbc-data
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-github:
+    name: Publish the GitHub release
+    needs: [version, publish-pypi]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          merge-multiple: true
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${{ needs.version.outputs.version }}"
+          tag="data-v${version}"
+          flag=""
+          if [ "${{ needs.version.outputs.prerelease }}" = "true" ]; then
+            flag="--prerelease"
+          fi
+          notes=$(python scripts/ci/release_notes.py --version "${version}")
+          if ! gh release view "${tag}" >/dev/null 2>&1; then
+            # never the repo's "latest" release: that belongs to KohakuGBC itself
+            gh release create "${tag}" --title "kohakugbc-data ${version}" \
+              --notes "${notes}" ${flag} --latest=false --target "$(git rev-parse HEAD)"
+          else
+            gh release edit "${tag}" --title "kohakugbc-data ${version}" \
+              --notes "${notes}" ${flag}
+          fi
+          for f in dist/*; do gh release upload "${tag}" "$f" --clobber; done

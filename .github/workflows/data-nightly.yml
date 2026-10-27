@@ -1,0 +1,91 @@
+name: Data Nightly
+
+on:
+  schedule:
+    # 03:00 UTC, once a day. This is the only automatic trigger: nothing about
+    # a nightly is per-push, so a commit landing at noon waits for tomorrow.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Build even when the gate says there is nothing new"
+        required: false
+        default: false
+        type: boolean
+
+# Serialised, and never cancelled: a second run has to see the tags the first
+# one pushed, or both would decide the same commit is unbuilt.
+concurrency:
+  group: data-nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  # Decides only. Data Release is the sole workflow that builds or uploads, so
+  # PyPI needs exactly one trusted publisher.
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          # Data Release cuts its tag through `gh release create`, so the tags
+          # are the record of what has been published and the gate reads them.
+          fetch-tags: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Decide whether a nightly is due
+        id: gate
+        shell: bash
+        run: |
+          today=$(date -u +%Y%m%d)
+          pkg=packages/kohakugbc-data
+
+          # Releases (stable or nightly) tag their commit data-v*: nothing new since
+          last=$(git describe --tags --abbrev=0 --match 'data-v*' 2>/dev/null || echo "")
+          changed=$(git rev-list --count ${last:+${last}..}HEAD -- "${pkg}")
+
+          # A nightly's version carries its UTC date: one nightly per day at most
+          already_today=$(git tag --list "data-v*.dev${today}*" | head -n1)
+
+          if [ "${{ inputs.force }}" = "true" ]; then
+            reason="forced"
+            build=true
+          elif [ "${changed}" -eq 0 ]; then
+            reason="no change to ${pkg} since ${last:-the start}"
+            build=false
+          elif [ -n "${already_today}" ]; then
+            reason="${already_today} was already cut today"
+            build=false
+          else
+            reason="${changed} commit(s) to ${pkg} since ${last:-the start}"
+            build=true
+          fi
+
+          echo "build=${build}" >> "$GITHUB_OUTPUT"
+          echo "${reason}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Computed after the gate so the stamp names the moment of the build.
+      - name: Compute the nightly version
+        id: compute
+        if: steps.gate.outputs.build == 'true'
+        shell: bash
+        run: |
+          version=$(python scripts/ci/version.py nightly)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "nightly ${version}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Dispatch the release workflow
+        if: steps.gate.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run data-release.yml \
+            -f ref=main \
+            -f version="${{ steps.compute.outputs.version }}"
