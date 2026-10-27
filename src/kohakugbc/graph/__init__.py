@@ -1,22 +1,19 @@
 """Records and their resolution into GBC graphs.
 
-``to_text`` is the resolution the program uses: the Rust implementation (``kohakugbc._rs``)
-when it is built, else the Python reference; ``KOHAKUGBC_RESOLVE=python|rust`` picks one. The
-choice is made once, at import.
+``to_text`` is the resolution the program uses: the Rust implementation (``kohakugbc_data``'s
+native part) by default, or the Python reference; ``KOHAKUGBC_RESOLVE=python|rust`` picks one.
+The choice is made once, at import.
 """
 
 import json
 import os
 
+from kohakugbc_data import _rs
+
 from kohakugbc.graph.digest import canonical, digest
 from kohakugbc.graph.orders import stats
 from kohakugbc.graph.records import from_node_info, record, ref
 from kohakugbc.graph.reference import ResolutionError, resolve
-
-try:
-    from kohakugbc import _rs
-except ImportError:
-    _rs = None
 
 
 def python_text(
@@ -38,10 +35,10 @@ def rust_text(
 
 
 def _select():
-    match os.environ.get("KOHAKUGBC_RESOLVE", "rust" if _rs is not None else "python"):
+    match os.environ.get("KOHAKUGBC_RESOLVE", "rust"):
         case "python":
             return python_text
-        case "rust" if _rs is not None:
+        case "rust":
             return rust_text
         case choice:
             raise ImportError(f"KOHAKUGBC_RESOLVE={choice!r}: not available")

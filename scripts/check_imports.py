@@ -1,5 +1,5 @@
 """Check the import boundary between KohakuGBC's layers over every module of src/ (kohakugbc
-and the standalone kohakugbc_models)."""
+and the standalone kohakugbc_models) and of packages/kohakugbc-data (which imports neither)."""
 
 import ast
 import sys
@@ -9,7 +9,13 @@ REPO = Path(__file__).resolve().parents[1]
 SRC = REPO / "src"
 
 # The program layer: the GBC program, its nodes, the graph; no machine, no engine
-PROGRAM = ("kohakugbc.program", "kohakugbc.nodes", "kohakugbc.graph", "kohakugbc._rs", "kohakunode")
+PROGRAM = (
+    "kohakugbc.program",
+    "kohakugbc.nodes",
+    "kohakugbc.graph",
+    "kohakugbc_data",
+    "kohakunode",
+)
 
 # Package prefix -> allowed import prefixes (beyond the standard library)
 RULES = {
@@ -56,6 +62,8 @@ RULES = {
     ),
     "kohakugbc.io": (*PROGRAM, "kohakugbc.io", "togeari"),
     "kohakugbc.cli": ("kohakugbc", "togeari", "kohakunode"),
+    # The data package: graphs and datasets, no machine, no engine, no kohakugbc
+    "kohakugbc_data": ("kohakugbc_data",),
 }
 
 # Third-party packages each part may use; torch, transformers and vllm only in the engines and
@@ -76,6 +84,7 @@ EXTRAS = {
         "kohakuvllm",
     ),
     "kohakugbc.io": ("PIL", "numpy", "pyarrow"),
+    "kohakugbc_data": ("PIL", "numpy", "pyarrow", "kohakuvault"),
     "kohakugbc_models.detect": (
         "PIL",
         "numpy",
@@ -103,7 +112,7 @@ EXTRAS = {
 }
 
 # Source roots scanned; a module's name is its path under its root
-ROOTS = [SRC]
+ROOTS = [SRC, REPO / "packages" / "kohakugbc-data" / "src"]
 
 
 def module_name(root: Path, path: Path) -> str:

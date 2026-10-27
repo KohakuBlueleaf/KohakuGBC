@@ -1,11 +1,10 @@
 [build-system]
-requires = ["maturin>=1.9,<2.0"]
-build-backend = "maturin"
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
 
 [project]
 name = "kohakugbc"
-# maturin reads the version from Cargo.toml.
-dynamic = ["version"]
+version = "0.1.0"
 description = "KohakuGBC: Graph-Based Captioning as a KIR program on the Togeari dataflow machine, with its engines"
 authors = [
     { name = "Shih-Ying Yeh(KohakuBlueLeaf)", email = "apolloyeh0123@gmail.com" },
@@ -14,6 +13,7 @@ license = { text = "Apache-2.0" }
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "kohakugbc-data>=0.1.0",
     "togeari[web]>=0.3.0",
     "httpx>=0.27",
     "kohakunode>=0.3.0",
@@ -60,10 +60,7 @@ qwen35 = [
     "xgrammar>=0.2",
 ]
 parquet = ["pyarrow>=15"]
-# The GBC dataset format (kohakugbc.io.dataset)
-dataset = ["kohakuvault>=1.1", "pyarrow>=15"]
 dev = [
-    "maturin>=1.9,<2.0",
     "pytest>=8",
     "pytest-xdist>=3.6",
     "ruff",
@@ -75,13 +72,17 @@ dev = [
 [project.scripts]
 gbc = "kohakugbc.cli.main:main"
 
-[tool.maturin]
-# Python source is in src/kohakugbc; the crate is src/kohakugbc-rust (Cargo.toml). The models GBC
-# runs itself, their kernels and the numerics are one standalone package beside it.
-python-source = "src"
-module-name = "kohakugbc._rs"
-python-packages = ["kohakugbc_models"]
-include = ["src/kohakugbc/**/*.kir", "src/kohakugbc/**/*.json", "src/kohakugbc/**/*.txt"]
+[tool.hatch.build.targets.wheel]
+# The GBC machine and engines, and the models GBC runs itself (their kernels and numerics) as
+# a standalone package beside it; the native part is in kohakugbc-data (packages/)
+packages = ["src/kohakugbc", "src/kohakugbc_models"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/README.md", "/LICENSE", "/pyproject.toml"]
+
+# A checkout develops both packages together: `uv pip install -e packages/kohakugbc-data -e .`
+[tool.uv.sources]
+kohakugbc-data = { path = "packages/kohakugbc-data", editable = true }
 
 [tool.black]
 line-length = 100

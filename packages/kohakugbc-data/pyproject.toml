@@ -1,0 +1,60 @@
+[build-system]
+requires = ["maturin>=1.9,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "kohakugbc-data"
+# The version's one source; Cargo.toml follows it (scripts/ci/version.py)
+version = "0.1.0"
+description = "KohakuGBC's data side: GBC graphs (store, resolution, prompt rendering) and the GBC dataset format (KohakuClip image shards, KohakuVault graphs and metadata)"
+authors = [
+    { name = "Shih-Ying Yeh(KohakuBlueLeaf)", email = "apolloyeh0123@gmail.com" },
+]
+license = { text = "Apache-2.0" }
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "pillow>=10",
+    "pyarrow>=15",
+    "kohakuvault>=1.1",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Rust",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://kblueleaf.net/"
+Repository = "https://github.com/KohakuBlueleaf/KohakuGBC"
+
+[project.optional-dependencies]
+dev = ["maturin>=1.9,<2.0", "pytest>=8"]
+
+[tool.maturin]
+python-source = "src"
+module-name = "kohakugbc_data._rs"
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "BLE", "UP", "SIM", "PERF", "RUF100", "PLC0415"]
+ignore = ["B905", "PERF203"]
+
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

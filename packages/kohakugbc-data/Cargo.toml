@@ -1,0 +1,33 @@
+[package]
+name = "kohakugbc-data"
+# Follows [project] version in pyproject.toml (scripts/ci/version.py stamps both)
+version = "0.1.0"
+edition = "2021"
+description = "The native part of kohakugbc-data: GBC graph resolution, storage and prompts"
+license = "Apache-2.0"
+repository = "https://github.com/KohakuBlueleaf/KohakuGBC"
+include = ["/rust/**", "/Cargo.toml", "/Cargo.lock", "/rustfmt.toml", "/LICENSE"]
+
+[lib]
+name = "_rs"     # == python module path: kohakugbc_data/_rs
+crate-type = ["cdylib", "rlib"]
+path = "rust/lib.rs"
+
+[dependencies]
+pyo3 = "0.27"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+indexmap = "2"
+regex = "1"
+rmp-serde = "1.3"
+zstd = "0.13"
+
+[features]
+# Wheels: no libpython, stable ABI (one wheel per platform for CPython 3.11+);
+# `cargo test --no-default-features` links libpython so the unit tests run as a binary
+default = ["extension-module"]
+extension-module = ["pyo3/extension-module", "pyo3/abi3-py311"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

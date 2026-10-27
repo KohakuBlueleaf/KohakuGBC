@@ -5,11 +5,15 @@ on:
     branches: [main]
   pull_request:
 
-# A compute project: CI checks the code's form only; results are checked by runs on the cards
+# A compute project: CI checks the code's form, and the data format of kohakugbc-data; results
+# are checked by runs on the cards
 jobs:
   rust:
-    name: Rust (fmt, clippy)
+    name: Rust (fmt, clippy, unit tests)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/kohakugbc-data
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -19,10 +23,14 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/kohakugbc-data
       - name: cargo fmt
         run: cargo fmt --check
       - name: cargo clippy
         run: cargo clippy --all-targets -- -D warnings
+      - name: cargo test
+        run: cargo test --release --no-default-features
 
   lint:
     name: Lint and boundaries
@@ -35,10 +43,28 @@ jobs:
       - name: Install
         run: pip install black ruff
       - name: black
-        run: python -m black --check --line-length 100 src tests scripts configs
+        run: python -m black --check --line-length 100 src tests scripts configs packages/kohakugbc-data/src packages/kohakugbc-data/tests
       - name: ruff
-        run: python -m ruff check src tests scripts configs
+        run: python -m ruff check src tests scripts configs packages/kohakugbc-data/src packages/kohakugbc-data/tests
       - name: Import boundary
         run: python scripts/check_imports.py
       - name: Markdown code blocks
         run: python scripts/check_md_black.py .
+
+  data:
+    name: kohakugbc-data (build, format tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/kohakugbc-data
+      - name: Build and install
+        run: pip install ./packages/kohakugbc-data pytest
+      - name: Format tests
+        working-directory: packages/kohakugbc-data/tests
+        run: python -m pytest -q -p no:cacheprovider --rootdir . .

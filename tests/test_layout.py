@@ -6,16 +6,13 @@ from pathlib import Path
 
 import pytest
 
-import kohakugbc
-from kohakugbc import _rs
-
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 import check_imports  # noqa: E402
 
 PACKAGES = [
     "kohakugbc",
-    "kohakugbc._rs",
+    "kohakugbc_data",
     "kohakugbc.program",
     "kohakugbc.nodes",
     "kohakugbc.graph",
@@ -31,10 +28,6 @@ def test_imports(name):
     importlib.import_module(name)
 
 
-def test_native_version_is_package_version():
-    assert kohakugbc.__version__.split("+")[0].startswith(_rs.version())
-
-
 def test_import_boundary_holds():
     assert check_imports.violations(check_imports.ROOTS) == []
 
@@ -48,6 +41,7 @@ def test_import_boundary_catches_each_layer(tmp_path):
         "kohakugbc/engines/vlm/api.py": "from kohakugbc.machine import bindings\n",
         "kohakugbc/engines/vlm/ok.py": "from kohakugbc.nodes.specs import chat\nimport httpx\n",
         "kohakugbc/program/__init__.py": "from . import controls\n",
+        "kohakugbc_data/dataset/x.py": "from kohakugbc.graph import stats\n",
     }
     for rel, text in files.items():
         path = tmp_path / "src" / rel
@@ -56,6 +50,7 @@ def test_import_boundary_catches_each_layer(tmp_path):
     bad = check_imports.violations([tmp_path / "src"])
     names = sorted(b.split(": imports ")[1] for b in bad)
     assert names == [
+        "kohakugbc.graph.stats",
         "kohakugbc.machine.bindings",
         "kohakugbc.machine.build",
         "togeari.Use",
