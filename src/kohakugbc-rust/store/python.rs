@@ -1,4 +1,5 @@
-//! `kohakugbc._rs.GbcGraph`: one answer line held in Rust; JSON or msgpack in, either out.
+//! `kohakugbc._rs.GbcGraph`: one answer line held in Rust; JSON or msgpack in, either out, and
+//! its prompt.
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -8,6 +9,9 @@ use serde_json::Value;
 use super::convert::{from_value, to_value};
 use super::pack::{pack, unpack, DEFAULT_ZSTD};
 use super::record::Record;
+use crate::prompt::gbc::{from_gbc, Options};
+use crate::prompt::python::{coords, PromptDag};
+use crate::prompt::text::render;
 
 fn err(e: String) -> PyErr {
     PyValueError::new_err(e)
@@ -16,6 +20,35 @@ fn err(e: String) -> PyErr {
 #[pyclass(module = "kohakugbc._rs", name = "GbcGraph", frozen)]
 pub struct GbcGraph {
     rec: Record,
+}
+
+impl GbcGraph {
+    fn options(
+        captions: Option<Vec<String>>,
+        boxes: bool,
+        tag_threshold: Option<f64>,
+        tag_spaces: bool,
+        root: &str,
+    ) -> Options {
+        let mut o = Options {
+            boxes,
+            tag_threshold,
+            tag_spaces,
+            root: root.into(),
+            ..Default::default()
+        };
+        if let Some(c) = captions {
+            o.captions = c;
+        }
+        o
+    }
+
+    fn graph(&self) -> PyResult<&super::record::Graph> {
+        self.rec
+            .graph
+            .as_ref()
+            .ok_or_else(|| PyValueError::new_err("the graph is null or kept raw, not typed"))
+    }
 }
 
 #[pymethods]
@@ -72,5 +105,48 @@ impl GbcGraph {
     #[getter]
     fn num_vertices(&self) -> usize {
         self.rec.graph.as_ref().map_or(0, |g| g.vertices.len())
+    }
+
+    /// The graph's prompt DAG (`kohakugbc.graph.prompt.from_gbc`).
+    #[pyo3(signature = (captions=None, boxes=true, tag_threshold=Some(0.35), tag_spaces=true, root="image"))]
+    fn prompt_dag(
+        &self,
+        py: Python<'_>,
+        captions: Option<Vec<String>>,
+        boxes: bool,
+        tag_threshold: Option<f64>,
+        tag_spaces: bool,
+        root: &str,
+    ) -> PyResult<PromptDag> {
+        let o = Self::options(captions, boxes, tag_threshold, tag_spaces, root);
+        let g = self.graph()?;
+        let dag = py.detach(|| from_gbc(g, &o)).map_err(err)?;
+        Ok(PromptDag { dag })
+    }
+
+    /// The graph's prompt text in one call (`prompt_dag(...).render(...)`).
+    #[pyo3(signature = (width=1024, height=1024, space="abs_centralized", order="yxyx", scale=1000, placement="first", header=true, captions=None, boxes=true, tag_threshold=Some(0.35), tag_spaces=true, root="image"))]
+    #[allow(clippy::too_many_arguments)]
+    fn prompt(
+        &self,
+        py: Python<'_>,
+        width: i64,
+        height: i64,
+        space: &str,
+        order: &str,
+        scale: i64,
+        placement: &str,
+        header: bool,
+        captions: Option<Vec<String>>,
+        boxes: bool,
+        tag_threshold: Option<f64>,
+        tag_spaces: bool,
+        root: &str,
+    ) -> PyResult<String> {
+        let c = coords(width, height, space, order, scale)?;
+        let o = Self::options(captions, boxes, tag_threshold, tag_spaces, root);
+        let g = self.graph()?;
+        py.detach(|| from_gbc(g, &o).and_then(|d| render(&d, &c, placement, header)))
+            .map_err(err)
     }
 }
