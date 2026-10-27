@@ -63,10 +63,18 @@ Placement and boxes:
 - **Content placement:** a vertex's caption, box and tags sit at one of those places, the
   `first` or the `last`.
 - **Stored boxes:** `(left, top, right, bottom)` in [0, 1].
-- **Written boxes:** four integers in the header's space. `abs_centralized` is pixels from the
-  centre of the canvas (MOSS-Image's layout space). `relative` is `[0, scale]`.
-- **Order:** `yxyx` or `xyxy`.
-- **Rounding:** half to even, as Python's `round`.
+- **Written boxes:** four integers in the header's space. `abs_centralized` is canvas pixels
+  less `W // 2` / `H // 2` (MOSS-Image's layout space). `relative` is `[0, scale]`.
+- **Order:** `yxyx` (MOSS-Image's model-facing order, the default) or `xyxy`.
+- **Rounding:** `enclose` (default): start edges down, end edges up, after `round(., 9)`, as
+  MOSS-Image's own `skills/moss-image-prompt-enhancer/scripts/compile_prompt.py`; `nearest`:
+  half to even.
+
+`kohakugbc.graph.prompt.to_moss` writes the MOSS-Image Layout draft (`summary` with `meta`,
+`canvas`, `caption`; flat `items` with `label`, `caption`, `tags`, `bbox`; `abs` / `xyxy`
+pixels), the input of that script, which compiles it into the one-line model prompt. On 360
+graphs (4,332 items) the compiled boxes equal the boxes the GBC text writes for the same
+vertices, in Python and Rust.
 
 The Rust side reads text by Python's rules (`str.isspace`, `strip`, `splitlines`), so the same
 text gives the same DAG in both implementations.
@@ -79,8 +87,8 @@ danbooru 27B tier samples). Windows, one Python thread, best of 5 passes. Checke
 - JSON → `GbcGraph` → JSON, and → msgpack (plain, zstd 3 / 9 / 19) → JSON, both give each
   line's own value.
 - Three values the typed form cannot carry come back the same, kept raw.
-- The Rust prompt text equals the Python reference's on 12,048 renders: 8 variants of coords,
-  placement and options per graph.
+- The Rust prompt text equals the Python reference's on 15,060 renders: 10 variants of coords
+  (both roundings), placement and options per graph.
 - Rust `parse` equals Python `parse` on all of them, and on 11 hand-written prompts (8 of them
   rejected by both).
 

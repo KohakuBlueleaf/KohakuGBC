@@ -1,26 +1,29 @@
-"""The prompt DAG as MOSS-Image's layout JSON: a summary caption and a flat item list.
+"""The prompt DAG as a MOSS-Image Layout draft: the readable JSON that MOSS-Image's own
+``skills/moss-image-prompt-enhancer/scripts/compile_prompt.py`` compiles into the one-line
+model prompt (centred ``yxyx`` boxes, edges enclosed).
 
-Every boxed vertex but the root is one item, in the order the text walks them; MOSS-Image's
-layout has no hierarchy, relations or tags, so those are dropped unless asked into the summary.
+Every boxed vertex but the root is one flat item, in the order the text walks them, with its
+caption (the handle when it has none) and its tags; MOSS-Image's layout has no hierarchy or
+relations, so relations go into the summary caption only when asked.
 """
 
-from kohakugbc.graph.prompt.coords import MOSS, Coords
 from kohakugbc.graph.prompt.dag import Dag, check
 from kohakugbc.graph.prompt.text import hosts
 
 
 def to_moss(
     dag: Dag,
-    coords: Coords = MOSS,
+    width: int = 1024,
+    height: int = 1024,
     label: str = "object",
     meta: list[str] | None = None,
+    canvas: str | None = "single",
+    tags: bool = True,
     relations: bool = False,
 ) -> dict:
-    """``coords`` must be MOSS-Image's ``abs_centralized`` space; ``relations``: append the
-    relation texts to the summary caption."""
+    """The Layout draft on a ``width`` x ``height`` canvas (multiples of 16): boxes as
+    ``[x_min, y_min, x_max, y_max]`` pixels from the top-left, ``bbox_coord_space`` ``abs``."""
     check(dag)
-    if coords.space != "abs_centralized":
-        raise ValueError("MOSS-Image layouts take bbox_coord_space abs_centralized")
     host = hosts(dag, "first")
     order: list[str] = []
     rel_texts: list[str] = []
@@ -33,20 +36,33 @@ def to_moss(
                 walk(c)
 
     walk(dag.root)
-    caption = dag.vertices[dag.root].text or ""
+    caption = dag.vertices[dag.root].text or dag.root
     if relations and rel_texts:
-        caption = " ".join([caption, *rel_texts]).strip()
-    summary = {"caption": caption}
+        caption = " ".join([caption, *rel_texts])
+    summary: dict = {}
     if meta:
-        summary = {"meta": meta, "canvas": "single", **summary}
-    items = [
-        {"label": label, "caption": dag.vertices[h].text or "", "bbox": coords.write(v.box)}
-        for h in order
-        if (v := dag.vertices[h]).box is not None
-    ]
+        summary["meta"] = meta
+    if canvas:
+        summary["canvas"] = canvas
+    summary["caption"] = caption
+    items = []
+    for h in order:
+        v = dag.vertices[h]
+        if v.box is None:
+            continue
+        left, top, right, bottom = v.box
+        if not (left < right and top < bottom):
+            continue
+        item = {"label": label, "caption": v.text or h}
+        if tags and v.tags:
+            item["tags"] = list(v.tags)
+        item["bbox"] = [left * width, top * height, right * width, bottom * height]
+        items.append(item)
     return {
+        "width": width,
+        "height": height,
+        "bbox_coord_space": "abs",
+        "bbox_format": "xyxy",
         "summary": summary,
         "items": items,
-        "bbox_coord_space": coords.space,
-        "bbox_format": coords.order,
     }

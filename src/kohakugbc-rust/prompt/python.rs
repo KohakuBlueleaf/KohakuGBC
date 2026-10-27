@@ -12,8 +12,15 @@ fn err(e: String) -> PyErr {
     PyValueError::new_err(e)
 }
 
-pub fn coords(width: i64, height: i64, space: &str, order: &str, scale: i64) -> PyResult<Coords> {
-    Coords::new(width, height, space, order, scale).map_err(err)
+pub fn coords(
+    width: i64,
+    height: i64,
+    space: &str,
+    order: &str,
+    scale: i64,
+    rounding: &str,
+) -> PyResult<Coords> {
+    Coords::new(width, height, space, order, scale, rounding).map_err(err)
 }
 
 #[pyclass(module = "kohakugbc._rs", name = "PromptDag", frozen)]
@@ -35,12 +42,12 @@ impl PromptDag {
         order: &str,
         scale: i64,
     ) -> PyResult<Self> {
-        let c = coords(width, height, space, order, scale)?;
+        let c = coords(width, height, space, order, scale, "enclose")?;
         let dag = py.detach(move || parse(&text, &c)).map_err(err)?;
         Ok(PromptDag { dag })
     }
 
-    #[pyo3(signature = (width=1024, height=1024, space="abs_centralized", order="yxyx", scale=1000, placement="first", header=true))]
+    #[pyo3(signature = (width=1024, height=1024, space="abs_centralized", order="yxyx", scale=1000, rounding="enclose", placement="first", header=true))]
     #[allow(clippy::too_many_arguments)]
     fn render(
         &self,
@@ -50,10 +57,11 @@ impl PromptDag {
         space: &str,
         order: &str,
         scale: i64,
+        rounding: &str,
         placement: &str,
         header: bool,
     ) -> PyResult<String> {
-        let c = coords(width, height, space, order, scale)?;
+        let c = coords(width, height, space, order, scale, rounding)?;
         py.detach(|| render(&self.dag, &c, placement, header))
             .map_err(err)
     }

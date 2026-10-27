@@ -125,7 +125,7 @@ impl GbcGraph {
     }
 
     /// The graph's prompt text in one call (`prompt_dag(...).render(...)`).
-    #[pyo3(signature = (width=1024, height=1024, space="abs_centralized", order="yxyx", scale=1000, placement="first", header=true, captions=None, boxes=true, tag_threshold=Some(0.35), tag_spaces=true, root="image"))]
+    #[pyo3(signature = (width=1024, height=1024, space="abs_centralized", order="yxyx", scale=1000, rounding="enclose", placement="first", header=true, captions=None, boxes=true, tag_threshold=Some(0.35), tag_spaces=true, root="image"))]
     #[allow(clippy::too_many_arguments)]
     fn prompt(
         &self,
@@ -135,6 +135,7 @@ impl GbcGraph {
         space: &str,
         order: &str,
         scale: i64,
+        rounding: &str,
         placement: &str,
         header: bool,
         captions: Option<Vec<String>>,
@@ -143,7 +144,7 @@ impl GbcGraph {
         tag_spaces: bool,
         root: &str,
     ) -> PyResult<String> {
-        let c = coords(width, height, space, order, scale)?;
+        let c = coords(width, height, space, order, scale, rounding)?;
         let o = Self::options(captions, boxes, tag_threshold, tag_spaces, root);
         let g = self.graph()?;
         py.detach(|| from_gbc(g, &o).and_then(|d| render(&d, &c, placement, header)))
