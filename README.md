@@ -356,6 +356,10 @@ Every engine entry, with all its settings: [docs/guides/engines.md](docs/guides/
 kind, edges, captions, depth, leaves). A run report (`machine.report`) holds the configuration,
 the environment, per-second metrics of every lane and unit, events, recorded jobs and a summary.
 
+Captioned images ship as a GBC dataset (`kohakugbc.io.dataset`): sharded folders of KohakuClip
+image shards, graphs and per-image metadata in KohakuVault, joined by key
+([dataset format](docs/guides/dataset.md)).
+
 ## Faithful to GBC
 
 The node library ports GBC's proof of concept (its round engine, JSON reply layer and seeded
