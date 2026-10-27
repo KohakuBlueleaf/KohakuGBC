@@ -16,6 +16,11 @@ on:
         description: "Stamp this version before building (nightlies pass X.Y.Z.devN)"
         required: false
         default: ""
+      publish:
+        description: "Publish (off: build and test every wheel and the sdist only)"
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -145,6 +150,7 @@ jobs:
   publish-pypi:
     name: Publish distributions to PyPI
     needs: [wheels, sdist]
+    if: github.event_name != 'workflow_dispatch' || inputs.publish
     runs-on: ubuntu-latest
     environment:
       name: pypi
