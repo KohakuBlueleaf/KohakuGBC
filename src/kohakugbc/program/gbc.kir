@@ -161,7 +161,11 @@
     ()jump(`decide`)
     decide:
         (records, frontier, rounds, breadth, stop, controls)next_step(step)
-        (step)switch("depth"=>`depth`, "breadth"=>`widen`, _=>`done`)
+        (step)switch("depth"=>`deepen`, "breadth"=>`widen`, _=>`done`)
+        # `depth` is entered by jumps only (a graph cannot draw a namespace that a builtin
+        # and a jump both enter)
+        deepen:
+            ()jump(`depth`)
         widen:
             (breadth, 1)add(breadth)
             (image, records, controls)coverage(records, found, grew)
