@@ -6,7 +6,12 @@ than the dispatcher should run). An entry fills a slot: ``entry(slot, name)`` re
 factory, and the machine's engine configuration names one entry per slot with its settings,
 ``{"vlm": {"entry": "replay", "trace": "..."}, ...}``. Nothing dispatches on the entry after
 the build. An ``OPTIONAL`` slot the configuration leaves out has no lane (its node is only
-reached under controls that ask for it).
+reached under controls that ask for it: ``detect`` and ``embed`` below the root, ``tag`` under
+``tagging``).
+
+No engine runs in the machine's process: an entry registered with ``hosted=True`` loads one, and
+a configuration that names it directly gets it in one spawned host (``local``) with the slot on
+``remote``. ``hosts`` place them per card.
 """
 
 from collections.abc import Callable
@@ -17,9 +22,10 @@ from kohakugbc.engines import spawn
 
 SLOTS = ("vlm", "detect", "embed", "tag", "cpu")
 NODES = {"vlm": "chat", "detect": "detector", "embed": "embedder", "tag": "tagger"}
-OPTIONAL = ("tag",)
+OPTIONAL = ("detect", "embed", "tag")
 
 ENTRIES: dict[tuple[str, str], Callable[[dict, dict], "Slot"]] = {}
+HOSTED: set[tuple[str, str]] = set()
 
 
 @dataclass
@@ -40,14 +46,17 @@ class Slot:
     needs: list = field(default_factory=list)
 
 
-def entry(slot: str, name: str):
+def entry(slot: str, name: str, hosted: bool = False):
     """Register a factory ``(settings, shared) -> Slot`` as entry ``name`` of ``slot``;
-    ``shared`` is one dict per machine build, for state entries of several slots share."""
+    ``shared`` is one dict per machine build, for state entries of several slots share.
+    ``hosted``: the units load an engine, so they run in an engine host."""
     if slot not in SLOTS:
         raise ValueError(f"unknown slot {slot!r}")
 
     def register(factory):
         ENTRIES[(slot, name)] = factory
+        if hosted:
+            HOSTED.add((slot, name))
         return factory
 
     return register
@@ -69,10 +78,29 @@ def build_slot(slot: str, settings: dict | None, shared: dict) -> Slot:
         raise ValueError(f"engines.{slot}.{name}: {exc}") from exc
 
 
+def hosted(engines: dict) -> dict:
+    """``engines`` with the slots naming a ``hosted`` entry moved to the ``local`` host, the VLM
+    up before the others load."""
+    local = {
+        slot: engines[slot]
+        for slot in SLOTS
+        if (slot, (engines.get(slot) or {}).get("entry")) in HOSTED
+    }
+    if not local:
+        return engines
+    hosts = dict(engines.get("hosts") or {})
+    if "local" in hosts:
+        raise ValueError("engines.hosts: 'local' is the host of slots that name an engine")
+    hosts["local"] = {"engines": local, "order": [["vlm"], [s for s in local if s != "vlm"]]}
+    remote = {slot: {"entry": "remote", "hosts": ["local"]} for slot in local}
+    return {**engines, **remote, "hosts": hosts}
+
+
 def build(engines: dict) -> dict[str, Slot]:
     """Every slot's ``Slot`` from the engine configuration; every problem in one error.
     ``engines["hosts"]`` (name -> ``{"env", "engines"}``): engine host processes started
     first, all at once, for the slots' ``remote`` entries to name."""
+    engines = hosted(engines)
     shared: dict = {}
     if engines.get("hosts"):
         shared["hosts"] = spawn.launch_all(engines["hosts"])

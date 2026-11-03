@@ -40,8 +40,10 @@ machine's memory per card) or in a VLM host and a SAM 3 + EmbeddingGemma host (`
 CUDA context and allocator per card; on the RTX 5090 at a 12 GiB KV cache the second host runs
 out of memory by 32 MiB).
 With every slot on hosts, the machine's process holds connectors only and never touches a card.
-`configs/machine/qwen35_card.py` runs this way by default (`GBC_HOSTING=process`,
-`GBC_HOST_LAYOUT=card`): per card one host running its VLM, SAM 3 and EmbeddingGemma.
+`registry.build` makes that hold for every configuration: an entry registered with `hosted=True`
+that a configuration names directly moves to the `local` host. `configs/machine/qwen35_card.py`
+runs this way (`GBC_HOST_LAYOUT=card` by default): per card one
+host running its VLM, SAM 3 and EmbeddingGemma.
 
 ```
 gbc host configs/engines/vlm.py --slot vlm --listen 0.0.0.0:7501   # on the engine node
@@ -115,5 +117,5 @@ batching and admission read its capacity and load.
 ## Checks
 
 Runs on the cards: `scripts/bench/machine/card.sh` runs the machine on its engine hosts
-(`configs/machine/qwen35_card.py`, `GBC_HOSTING=process`), every metric on disk; the numbers are
+(`configs/machine/qwen35_card.py`), every metric on disk; the numbers are
 in [the flagship run](../performance/flagship.md).

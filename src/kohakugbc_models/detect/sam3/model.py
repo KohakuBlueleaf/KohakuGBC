@@ -152,7 +152,8 @@ class Sam3Detector:
     ``capture``: ``load`` captures every vision crop count, fusion bucket and text count up to
     ``max_texts`` new texts when placed on a CUDA device (largest first, into one memory pool
     the three graph sets share: their replays run one at a time on the model's stream), then
-    runs other shapes uncaptured; ``lazy`` captures each on its first call.
+    runs other shapes uncaptured; ``lazy`` captures each on its first call. ``image_size``:
+    the input side in px, a multiple of the attention window (336; None: the checkpoint's 1008).
     """
 
     def __init__(
@@ -177,7 +178,9 @@ class Sam3Detector:
         fp4_scales: str | None = None,
         fp4_record: bool = False,
         fp8_mlp: str | None = None,
+        image_size: int | None = None,
     ):
+        self.image_size = image_size
         if capture not in ("load", "lazy"):
             raise ValueError(f"capture {capture!r}: load or lazy")
         if fusion_compile and fusion_graph:
@@ -206,10 +209,19 @@ class Sam3Detector:
         path = Path(self.model_name)
         if not path.is_dir():
             path = Path(snapshot_download(self.model_name, allow_patterns=FILES))
-        model = Sam3Image(detector_config(path))
+        config = detector_config(path)
+        self.processor = Sam3Processor.from_pretrained(path)
+        if self.image_size is not None:
+            backbone = config.vision_config.backbone_config
+            tile = backbone.window_size * backbone.patch_size
+            if self.image_size % tile:
+                raise ValueError(f"image_size {self.image_size}: not a multiple of {tile}")
+            backbone.image_size = self.image_size
+            images = self.processor.image_processor
+            images.size = type(images.size)(height=self.image_size, width=self.image_size)
+        model = Sam3Image(config)
         model.load_weights(sorted(path.glob("*.safetensors")))
         self.model = model.to(dtype=dtype).eval().requires_grad_(False)
-        self.processor = Sam3Processor.from_pretrained(path)
         self.dtype = dtype
         self.to(device)
 

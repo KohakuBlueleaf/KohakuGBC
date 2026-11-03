@@ -209,6 +209,7 @@ def native_sam3(name: str, settings: dict, shared: dict, common: dict) -> Slot:
         capture=settings.get("capture", "load"),
         retry_singular=bool(settings.get("retry_singular", True)),
         vision_graph=vision_graph,
+        image_size=settings.get("image_size"),
         **common,
     )
     estimate = DEFAULT_SAM3_GB
@@ -219,7 +220,7 @@ def native_sam3(name: str, settings: dict, shared: dict, common: dict) -> Slot:
     return _slot("detector", model, settings, shared, dtype, None, budgets)
 
 
-@entry("detect", "torch")
+@entry("detect", "torch", hosted=True)
 def detector(settings: dict, shared: dict) -> Slot:
     name = settings.get("model", "google/owlv2-base-patch16-ensemble")
     common = {
@@ -249,7 +250,7 @@ def detector(settings: dict, shared: dict) -> Slot:
     return _slot("detector", model, settings, shared, "float32", None, budgets)
 
 
-@entry("embed", "torch")
+@entry("embed", "torch", hosted=True)
 def embedder(settings: dict, shared: dict) -> Slot:
     name = settings.get("model", "google/embeddinggemma-300m")
     impl = settings.get("impl", "auto")
@@ -276,7 +277,7 @@ def embedder(settings: dict, shared: dict) -> Slot:
     return _slot("embedder", model, settings, shared, "float32", "text", budgets)
 
 
-@entry("tag", "torch")
+@entry("tag", "torch", hosted=True)
 def tagger(settings: dict, shared: dict) -> Slot:
     name = settings.get("model", "pixai-labs/pixai-tagger-v1.0")
     placements = placement.devices(settings.get("devices", "auto"))

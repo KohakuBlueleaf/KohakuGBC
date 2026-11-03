@@ -369,6 +369,7 @@ class NativeSam3Detector:
         vision_graph: bool = False,
         fp4_scales: str | None = None,
         fp8_mlp: str | None = None,
+        image_size: int | None = None,
     ):
         self.model_name, self.box_threshold = model_name, box_threshold
         self.max_texts, self.max_batch, self.name = max_texts, max_batch, name
@@ -391,6 +392,7 @@ class NativeSam3Detector:
             vision_graph=vision_graph,
             fp4_scales=fp4_scales,
             fp8_mlp=fp8_mlp,
+            image_size=image_size,
         )
         self.device, self.dtype = "cpu", torch.float32
 

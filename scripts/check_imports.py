@@ -82,6 +82,7 @@ EXTRAS = {
         "inflect",
         "vllm",
         "kohakuvllm",
+        "tokenomos",
     ),
     "kohakugbc.io": ("PIL", "numpy", "pyarrow"),
     "kohakugbc_data": ("PIL", "numpy", "pyarrow", "kohakuvault"),

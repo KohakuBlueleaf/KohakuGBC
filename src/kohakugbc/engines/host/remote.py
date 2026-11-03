@@ -3,8 +3,9 @@
 ``submit`` hands the work to a sender thread (payloads are prepared and encoded there, never on
 the dispatcher) and returns a ticket; a reader thread answers each ticket from the host's
 results. ``capacity()`` is the host's last reported capacity less the submits the host had not
-taken yet. A lost connection answers every open ticket with ``UnitError``; ``ready()`` starts a
-reconnect in the background (``locate`` first starts a spawned host's ended process again).
+taken yet. A lost connection answers every open ticket with ``UnitError`` and starts a reconnect
+in the background (``locate`` first starts a spawned host's ended process again); ``ready()`` and
+``capacity()`` start another while the connection stays down.
 
 ``manage``: the unit starts and stops the hosted unit (``start()`` asks the host and waits up to
 ``start_timeout_s`` for it to be up; a lazy host loads nothing before that).
@@ -211,9 +212,12 @@ class RemoteUnit(EngineBase):
 
     def capacity(self) -> int:
         with self.lock:
-            if self.conn is None:
-                return 0
-            return max(0, self.state["capacity"] - (self.sent - self.state["seen"]))
+            down = self.conn is None
+            free = max(0, self.state["capacity"] - (self.sent - self.state["seen"]))
+        if down:
+            self.ready()
+            return 0
+        return free
 
     def load(self) -> Load:
         with self.lock:
@@ -317,6 +321,8 @@ class RemoteUnit(EngineBase):
         with contextlib.suppress(OSError):
             conn.close()
         self._fail_open("connection lost")
+        # with nothing open no lane hears of the loss, so nothing would poll ``ready``
+        self.ready()
 
     def _fail_open(self, why: str) -> None:
         with self.lock:

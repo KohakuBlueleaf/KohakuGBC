@@ -7,16 +7,18 @@ each connection when it changes, and at least every ``heartbeat_s``.
 
 An eager host starts every unit before it listens. A lazy one listens first and starts a unit
 when a connection asks (``("start",)``, on a thread of its own; the pump leaves the unit alone
-until it is up) and stops it on ``("stop",)``.
+until it is up) and stops it on ``("stop",)``. A device-side error in any engine ends the process.
 """
 
 import contextlib
+import os
 import queue
 import threading
 import time
+import traceback
 from multiprocessing.connection import Listener
 
-from togeari import WorkItem
+from togeari import ItemError, WorkItem
 from togeari.engines.common.transport import release
 
 from kohakugbc.engines.host import wire
@@ -264,6 +266,12 @@ class EngineHost:
         work = items if c.unit.kind == "batch" else items[0]
 
         def done(_, results, c=c, ticket=ticket):
+            # a device-side error kills this process's CUDA context for every engine in it: the
+            # remote units answer UnitError for their open work and start the host again
+            for r in results:
+                if isinstance(r, ItemError) and type(r.error).__name__ == "AcceleratorError":
+                    traceback.print_exception(r.error)
+                    os._exit(1)
             c.tickets.pop(ticket, None)
             c.send(("done", ticket, self._packet(c, ticket, [wire.encode(r) for r in results])))
 

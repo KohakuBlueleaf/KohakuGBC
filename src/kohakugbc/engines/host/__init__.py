@@ -43,8 +43,9 @@ class Served:
 
 def serve(engines: dict) -> Served:
     """The units of ``engines`` (slot -> entry settings) for a host, built as the machine builds
-    them (one ``shared`` for all), their placement checked on this process's devices."""
-    shared: dict = {}
+    them (one ``shared`` for all, ``hosted`` set), their placement checked on this process's
+    devices."""
+    shared: dict = {"hosted": True}
     out, needs = Served(), []
     for slot, settings in engines.items():
         built = registry.build_slot(slot, settings, shared)

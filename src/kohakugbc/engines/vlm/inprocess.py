@@ -21,7 +21,8 @@ mean tensor parallel over them); ``gpu_memory_utilization`` (0.5), ``max_model_l
 ``max_num_seqs`` (64), ``dtype`` (``bfloat16``), ``capacity`` (requests in flight per unit;
 default twice ``max_num_seqs``), ``structured`` (``kohaku``), ``retries`` (1), ``engine_args``
 (any other ``AsyncEngineArgs`` field: ``mamba_ssm_cache_dtype``, ``scheduler_cls``, ...),
-``sampling`` (extra ``SamplingParams`` fields), ``stats_s`` (0: off; else vLLM's stats line
+``sampling`` (extra ``SamplingParams`` fields), ``chat_kwargs`` (the chat template's switches,
+``{"enable_thinking": False}`` under any given), ``stats_s`` (0: off; else vLLM's stats line
 every that many seconds, with ``disable_log_stats=False`` in ``engine_args``); ``frontend``
 (``vllm``: vLLM's own input processing and image encoder; ``kohakuvllm``: KohakuvLLM's frontend,
 requests prepared in worker processes and images encoded by its vision tower in this process,
@@ -82,11 +83,12 @@ def messages_of(request: dict) -> tuple[list[dict], list[bytes]]:
     return messages, jpegs
 
 
-def prompt_parts(processor, request: dict) -> tuple[str, list]:
-    """The chat-templated prompt text (thinking off) and the request's pictures, decoded."""
+def prompt_parts(processor, request: dict, chat_kwargs: dict) -> tuple[str, list]:
+    """The chat-templated prompt text (``chat_kwargs`` to the template) and the request's
+    pictures, decoded."""
     messages, jpegs = messages_of(request)
     text = processor.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
+        messages, tokenize=False, add_generation_prompt=True, **chat_kwargs
     )
     pictures = []
     for data in jpegs:
@@ -113,6 +115,7 @@ class VllmUnit(EngineBase):
         frontend: str = "vllm",
         frontend_args: dict | None = None,
         frontend_gb: float = 1.5,
+        chat_kwargs: dict | None = None,
         **engine_args,
     ):
         super().__init__(name or "vllm")
@@ -145,6 +148,7 @@ class VllmUnit(EngineBase):
                 self.engine_args["logits_processors"] = [*procs, KOHAKU_GRAMMAR]
         self.cap = int(capacity or 2 * self.engine_args["max_num_seqs"])
         self.sampling = dict(sampling or {})
+        self.chat_kwargs = {"enable_thinking": False, **(chat_kwargs or {})}
         self.lock = threading.Lock()
         self.inflight = 0
         self.tickets: dict[int, dict] = {}
@@ -159,7 +163,9 @@ class VllmUnit(EngineBase):
     def start(self) -> None:
         if self.llm is not None:
             return
-        self.processor = AutoProcessor.from_pretrained(self.model)
+        self.processor = AutoProcessor.from_pretrained(
+            self.model, trust_remote_code=bool(self.engine_args.get("trust_remote_code"))
+        )
         ready = threading.Event()
         failure: list = []
 
@@ -284,7 +290,7 @@ class VllmUnit(EngineBase):
                 prompt = await self.front.inputs(*messages_of(request))
             else:
                 text, pictures = await asyncio.get_running_loop().run_in_executor(
-                    None, prompt_parts, self.processor, request
+                    None, prompt_parts, self.processor, request, self.chat_kwargs
                 )
                 prompt = {"prompt": text}
                 if pictures:
@@ -322,7 +328,7 @@ class VllmUnit(EngineBase):
         state["done"](ticket, [result])
 
 
-@entry("vlm", "vllm")
+@entry("vlm", "vllm", hosted=True)
 def vllm_units(settings: dict, shared: dict) -> Slot:
     settings = dict(settings)
     model = settings.pop("model")

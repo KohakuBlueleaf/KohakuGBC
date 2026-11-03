@@ -354,7 +354,7 @@ class Qwen35Unit(EngineBase):
         state["done"](ticket, [result])
 
 
-@entry("vlm", "qwen35")
+@entry("vlm", "qwen35", hosted=True)
 def qwen35_units(settings: dict, shared: dict) -> Slot:
     settings = dict(settings)
     model = settings.pop("model")

@@ -86,7 +86,7 @@ def bindings(lanes: dict, slots: dict, store: bool) -> dict:
         for slot, node in registry.NODES.items()
         if slot in slots
     }
-    if store:
+    if store and "embed" in slots:
         # A repeated name costs no embedding, across jobs and reruns
         bind["embedder"] = Use(
             lanes["embed"], adapter=slots["embed"].adapter, store="content", deterministic=True

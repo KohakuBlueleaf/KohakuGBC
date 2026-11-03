@@ -38,9 +38,40 @@ engines = {
 Every request carries `X-GBC-Request`, the SHA-256 of what it asks, so a cache or a log in
 front of the server can tell repeated questions apart.
 
+## The VLM on Tokenomos
+
+Tokenomos's in-process `LLM` in an engine host (Linux; the `tokenomos` package), one unit per
+host. The machine reaches it through the host's connector, with pictures in shared memory:
+
+```python
+engines = {
+    "vlm": {
+        "entry": "tokenomos",
+        "model": "/models/lfm3-vl-2b-mxfp8",
+        "arch": {"head": "mxfp8"},
+        "leave_gb": 5.0,
+    },
+}
+```
+
+| Setting | Meaning |
+|---|---|
+| `model`, `device` | the checkpoint; `cuda` (the host's environment picks the card) |
+| `arch`, `engine` | keyword arguments of the model declaration and of Tokenomos's `Engine` |
+| `leave_gb` | memory left to the other engines on the card |
+| `prep_workers` | processes preparing requests (16) |
+| `capacity` | requests in flight (four times the slots) |
+| `structured` | `grammar`: the device grammar holds the reply to its schema; `prompt`: the prompts ask for the JSON and an unreadable reply is asked again up to `retries` times |
+| `sampling`, `chat_kwargs` | extra `SamplingParams` fields; chat template switches (thinking off under any given) |
+| `memory_gb` | the plan's reservation on the device (90% of it less `leave_gb`) |
+
+A failed engine ends its host: a device-side error kills the process's CUDA context for every
+engine in it. The machine's remote units answer their open work with `UnitError`, start the host
+again, and the lanes retry. `configs/machine/qwen35_card.py` runs it with `GBC_VLM_ENGINE=tokenomos`.
+
 ## The VLM in-process (vLLM)
 
-vLLM's engine in the machine's process, one unit per `AsyncLLM` (Linux; `pip install
+vLLM's in-process `AsyncLLM` in an engine host, one unit per engine (Linux; `pip install
 "kohakugbc[vllm]"`):
 
 ```python
@@ -243,8 +274,11 @@ engines = {
 }
 ```
 
-`configs/machine/qwen35_card.py` hosts its engines this way (`GBC_HOSTING=process`, the
-default; `inprocess` keeps them in the machine's process).
+`configs/machine/qwen35_card.py` hosts its engines this way.
+
+No engine runs in the machine's process. A configuration that names an engine entry directly
+(`vllm`, `qwen35`, `tokenomos`, `torch`) gets those slots in one spawned host, `local`, the VLM up
+first; `api`, `replay` and `python` entries stay in the machine, since they load no model.
 
 ## CPU workers
 

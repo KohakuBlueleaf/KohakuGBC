@@ -1,5 +1,5 @@
-# The whole GBC machine on one card: Qwen3.5 through vLLM's engine, in this process (the
-# in-process ``vllm`` entry) or behind a `vllm serve` on the same card (GBC_VLM_URL, the ``api``
+# The whole GBC machine on one card: a VLM in the card's engine host, on vLLM's engine or on
+# Tokenomos (GBC_VLM_ENGINE), or behind a `vllm serve` on the same card (GBC_VLM_URL, the ``api``
 # entry; scripts/bench/machine/serve.py starts that server with the same engine arguments), and
 # GBC's own SAM 3 and EmbeddingGemma on the same card.
 # One machine per card: GBC_CARD picks it, so N processes cover an N-card box; or GBC_CARDS, one
@@ -40,9 +40,10 @@
 #   (a kernel spinning at 100% busy).
 # Admission: GBC_VLM_WAITING (VLM waiting + queued items, GBC_VLM_LANES per card by default),
 #   GBC_WAITING=lane=items,... (other lanes' limits on new jobs, detect=32 per card by default),
-#   GBC_MAX_JOBS (resident jobs; per card 96 under GBC_ADMISSION=stream, the default, 512 under
-#   batch): a job's time in the machine is about max_jobs / img/s. RTX 5090, 1200 images: 96 jobs
-#   2.00 img/s, job p50 42 s, tail 22 s; 512 jobs 2.01 img/s, p50 228 s, tail 233 s.
+#   GBC_MAX_JOBS (resident jobs; per card 96 under GBC_ADMISSION=stream, the default, 384 there on
+#   Tokenomos, 512 under batch): a job's time in the machine is about max_jobs / img/s. RTX 5090,
+#   1200 images, vLLM: 96 jobs 2.00 img/s, job p50 42 s, tail 22 s; 512 jobs 2.01 img/s, p50 228 s,
+#   tail 233 s. Tokenomos on Qwen3.5 4B: 96 jobs 1.65 img/s, 384 jobs 2.65, 768 jobs 2.65.
 # GBC_VLM_SCHEDULER: a vLLM scheduler class path, e.g. kohakuvllm.sched.phased.PhasedScheduler
 #   (decode-only steps between prefills, KOHAKU_PREFILL_EVERY; vLLM's own by default).
 # GBC_VLM_ATTN: vLLM's attention backend (FLASH_ATTN, FLASHINFER, TRITON_ATTN; vLLM's pick if
@@ -66,16 +67,32 @@
 # GBC_DETECT_FORMER / GBC_EMBED_FORMER: the lane's batch former, size (requests) or budget (each
 #   request's costs: SAM 3's crops and pairs per pass, the embedder's texts and characters). On
 #   the RTX 5090 machine budget halves SAM 3's batches (7.4 -> 3.7 requests) and costs 4% img/s.
+# GBC_DETECT_SIZE: SAM 3's input side in px, a multiple of 336 (672: 2.3-2.5x the requests/s;
+#   1008 if unset). GBC_DETECT_SELECT=throughput: SAM 3's units by measured rate.
+# GBC_VLM_SELECT=roundrobin: the VLM's units in turn; the default fills the unit with the most
+#   free capacity first, which starves smaller cards of the same speed.
 # GBC_EMBED_DEVICE: card (default: EmbeddingGemma beside SAM 3 on the aux cards) or cpu (one
 #   host process without a card, GBC_EMBED_THREADS torch threads, 8; the aux cards keep SAM 3).
 # GBC_TAG=1: the PixAI tagger beside SAM 3 on the aux cards (configs/controls/tags.py places its
 #   tags); GBC_TAG_FP8 (auto), GBC_TAG_BATCH (4 images per pass), GBC_TAG_MODEL.
+# GBC_DETECT=0 / GBC_EMBED=0: no SAM 3 / EmbeddingGemma (their memory left to the VLM), for
+#   controls that never go below the root (configs/controls/root.py).
+# JSON objects (in-process): GBC_VLM_ENGINE_ARGS over the engine arguments, GBC_VLM_SAMPLING
+#   SamplingParams fields, GBC_VLM_CHAT_KWARGS chat-template switches (enable_thinking off).
 # GBC_VLM_TIMEOUT_S: the VLM lane's deadline per attempt (none if unset); an expired request
 #   answers empty and is counted in the job's policy failures.
 # GBC_WAITS_S: why jobs wait, sampled every that many seconds into the report's waits.jsonl.
 #   GBC_IMAGES=path/to/images gbc run configs/machine/qwen35_card.py configs/controls/mid.py
 
+import json
 import os
+
+from togeari.core.policies import RoundRobin, Throughput
+
+
+def _json(name: str) -> dict:
+    return json.loads(os.environ.get(name) or "{}")
+
 
 _CARD = int(os.environ.get("GBC_CARD", "0"))
 _AUX = int(os.environ.get("GBC_AUX_CARD", str(_CARD)))
@@ -90,19 +107,28 @@ _VLM_CARDS = _VLM_CARDS or _CARDS or [_CARD]
 _AUX_CARDS = _AUX_CARDS or _CARDS or [_AUX]
 _N = len(_VLM_CARDS)
 _ADMISSION = os.environ.get("GBC_ADMISSION", "stream")
-_JOBS_PER_CARD = {"stream": 96, "batch": 512}[_ADMISSION]
+_STREAM_JOBS = 384 if os.environ.get("GBC_VLM_ENGINE") == "tokenomos" else 96
+_JOBS_PER_CARD = {"stream": _STREAM_JOBS, "batch": 512}[_ADMISSION]
 _MM_CACHE = os.environ.get("GBC_VLM_MM_CACHE_GB", "")
 _TIMEOUT = os.environ.get("GBC_VLM_TIMEOUT_S", "")
 _VLM_LANE = {"timeout_s": float(_TIMEOUT)} if _TIMEOUT else {}
+if os.environ.get("GBC_VLM_SELECT") == "roundrobin":
+    _VLM_LANE["select"] = RoundRobin()
 _WAITS = os.environ.get("GBC_WAITS_S", "")
 _OUT = os.environ.get("GBC_OUT", f"runs/machine/qwen35_card{'-'.join(map(str, _VLM_CARDS))}")
 _LANES = int(os.environ.get("GBC_VLM_LANES", "256"))
 _EVENTS = os.environ.get("GBC_EVENTS", "sampled")
 _DETECT_FP8 = os.environ.get("GBC_DETECT_FP8", "auto")
+_DETECT_SIZE = os.environ.get("GBC_DETECT_SIZE", "")
+_DETECT_SELECT = os.environ.get("GBC_DETECT_SELECT", "")
+_DETECT = os.environ.get("GBC_DETECT", "1") == "1"
+_EMBED = os.environ.get("GBC_EMBED", "1") == "1"
 _WAITING = dict(
     (k, int(v))
     for k, v in (
-        kv.split("=") for kv in os.environ.get("GBC_WAITING", f"detect={32 * _N}").split(",") if kv
+        kv.split("=")
+        for kv in os.environ.get("GBC_WAITING", f"detect={32 * _N}" if _DETECT else "").split(",")
+        if kv
     )
 )
 _EMBED_CPU = {"card": False, "cpu": True}[os.environ.get("GBC_EMBED_DEVICE", "card")]
@@ -146,6 +172,7 @@ _VLLM = {
         else {}
     ),
     "disable_log_stats": not _STATS,
+    **_json("GBC_VLM_ENGINE_ARGS"),
 }
 _TOP = ("gpu_memory_utilization", "max_model_len", "max_num_seqs")
 _INPROCESS = {
@@ -156,6 +183,8 @@ _INPROCESS = {
     "capacity": _LANES,
     "lane": _VLM_LANE,
     "structured": _STRUCTURED,
+    "sampling": _json("GBC_VLM_SAMPLING"),
+    "chat_kwargs": _json("GBC_VLM_CHAT_KWARGS"),
     "stats_s": 5.0 if _STATS else 0.0,
     "frontend": os.environ.get("GBC_VLM_FRONTEND", "vllm"),
     "frontend_args": {
@@ -167,6 +196,21 @@ _INPROCESS = {
         k: v for k, v in _VLLM.items() if k not in (*_TOP, "model", "served_model_name")
     },
 }
+# GBC_VLM_ENGINE=tokenomos: the VLM on Tokenomos in the card's engine host: GBC_VLM_MODEL,
+# GBC_TK_ARCH / GBC_TK_ENGINE (JSON: the model declaration's and the engine's kwargs),
+# GBC_TK_LEAVE_GB (memory left to SAM 3 and EmbeddingGemma on the card; 5, 0 with neither there)
+_ON_CARD = (_DETECT or _EMBED) and set(_VLM_CARDS) & set(_AUX_CARDS)
+_TOKENOMOS = {
+    "entry": "tokenomos",
+    "model": _VLLM["model"],
+    "arch": _json("GBC_TK_ARCH"),
+    "engine": {"max_len": 8192, **_json("GBC_TK_ENGINE")},
+    "leave_gb": float(os.environ.get("GBC_TK_LEAVE_GB", "5" if _ON_CARD else "0")),
+    "structured": "prompt" if _STRUCTURED == "prompt" else "grammar",
+    "sampling": _json("GBC_VLM_SAMPLING"),
+    "chat_kwargs": _json("GBC_VLM_CHAT_KWARGS"),
+    "lane": _VLM_LANE,
+}
 _HTTP = {
     "entry": "api",
     "flavour": "vllm",
@@ -177,8 +221,9 @@ _HTTP = {
     "lane": _VLM_LANE,
 }
 
+_VLM_ENGINE = os.environ.get("GBC_VLM_ENGINE", "vllm")
 _ENGINES = {
-    "vlm": _HTTP if _URL else _INPROCESS,
+    "vlm": {"vllm": _HTTP if _URL else _INPROCESS, "tokenomos": _TOKENOMOS}[_VLM_ENGINE],
     "detect": {
         "entry": "torch",
         "model": os.environ.get("GBC_DETECT_MODEL", "facebook/sam3"),
@@ -196,6 +241,8 @@ _ENGINES = {
         "memory_gb": float(os.environ.get("GBC_DETECT_GB", "3.5")),
         "priority": int(os.environ.get("GBC_DETECT_PRIORITY", "0")),
         "engine": {"schedule": os.environ.get("GBC_DETECT_SCHEDULE", "co_resident")},
+        "image_size": int(_DETECT_SIZE) if _DETECT_SIZE else None,
+        **({"lane": {"select": Throughput()}} if _DETECT_SELECT == "throughput" else {}),
     },
     "embed": {
         "entry": "torch",
@@ -205,8 +252,17 @@ _ENGINES = {
         "former": os.environ.get("GBC_EMBED_FORMER", "size"),
         "memory_gb": 1.4,
     },
-    "cpu": {"entry": "python", "workers": 8},
+    # GBC_CPU_MODE=process: the Python lane off the machine's GIL (threads top out near 3 img/s)
+    "cpu": {
+        "entry": "python",
+        "workers": int(os.environ.get("GBC_CPU_WORKERS", "8")),
+        "mode": os.environ.get("GBC_CPU_MODE", "thread"),
+    },
 }
+if not _DETECT:
+    del _ENGINES["detect"]
+if not _EMBED:
+    del _ENGINES["embed"]
 if _TAG:
     _ENGINES["tag"] = {
         "entry": "torch",
@@ -222,29 +278,27 @@ def _on_card(slot: str) -> dict:
     """A slot's settings in a host that sees one card (as ``cuda:0``)."""
     s = dict(_ENGINES[slot])
     if slot == "vlm":
-        return {**s, "units": 1, "devices": None}
+        return s if _VLM_ENGINE == "tokenomos" else {**s, "units": 1, "devices": None}
     return {**s, "devices": ["cuda:0"]}
 
 
-# GBC_HOSTING: process (the default): the machine's process holds connectors only, every engine
-#   in an engine host that sees one card (CUDA_VISIBLE_DEVICES); inprocess: every engine in the
-#   machine's process. GBC_HOST_LAYOUT (process): card (the default): one host per card for all
-#   its engines (card<c>), the in-process machine's memory per card; split: one host for the VLM
-#   (vlm<c>) and one for SAM 3 and EmbeddingGemma (aux<c>, loading after vlm<c>), one more CUDA
-#   context per card: on the RTX 5090 at GBC_VLM_KV_GB=12 the aux host misses by 32 MiB.
-_HOSTING = os.environ.get("GBC_HOSTING", "process")
+# The machine's process holds connectors only, every engine in an engine host that sees one card
+#   (CUDA_VISIBLE_DEVICES). GBC_HOST_LAYOUT: card (the default): one host per card for all its
+#   engines (card<c>); split: one host for the VLM (vlm<c>) and one for SAM 3 and EmbeddingGemma
+#   (aux<c>, loading after vlm<c>), one more CUDA context per card: on the RTX 5090 at
+#   GBC_VLM_KV_GB=12 the aux host misses by 32 MiB.
 _LAYOUT = os.environ.get("GBC_HOST_LAYOUT", "card")
-if _HOSTING not in ("process", "inprocess") or _LAYOUT not in ("card", "split"):
-    raise ValueError(f"GBC_HOSTING={_HOSTING!r} (process, inprocess), GBC_HOST_LAYOUT={_LAYOUT!r}")
+if _LAYOUT not in ("card", "split"):
+    raise ValueError(f"GBC_HOST_LAYOUT={_LAYOUT!r} (card, split)")
 engines = _ENGINES
-if _HOSTING == "process" and not _URL:
-    _hosts, _refs = {}, {"vlm": [], "detect": [], "embed": [], **({"tag": []} if _TAG else {})}
+if not _URL:
+    _hosts, _refs = {}, {s: [] for s in _ENGINES if s != "cpu"}
+    _ON_AUX = [s for s in ("detect", "embed", "tag") if s in _ENGINES]
+    _ON_AUX = [s for s in _ON_AUX if not (s == "embed" and _EMBED_CPU)]
     for _c in dict.fromkeys(_VLM_CARDS + _AUX_CARDS):
         _env = {"CUDA_VISIBLE_DEVICES": _c}
         _slots = ["vlm"] if _c in _VLM_CARDS else []
-        _slots += ["detect"] if _c in _AUX_CARDS else []
-        _slots += ["embed"] if _c in _AUX_CARDS and not _EMBED_CPU else []
-        _slots += ["tag"] if _c in _AUX_CARDS and _TAG else []
+        _slots += _ON_AUX if _c in _AUX_CARDS else []
         if _LAYOUT == "card":
             # vLLM refuses to start below GBC_VLM_UTIL of the card free: the VLM loads first
             _hosts[f"card{_c}"] = {
@@ -258,14 +312,14 @@ if _HOSTING == "process" and not _URL:
         if "vlm" in _slots:
             _hosts[f"vlm{_c}"] = {"env": _env, "engines": {"vlm": _on_card("vlm")}}
             _refs["vlm"].append(f"vlm{_c}")
-        if "detect" in _slots:
+        _aux = {s: _on_card(s) for s in _slots if s != "vlm"}
+        if _aux:
             # vLLM refuses to start below GBC_VLM_UTIL of the card free: the card's VLM first
-            _aux = {s: _on_card(s) for s in _slots if s != "vlm"}
             _after = [f"vlm{_c}"] if "vlm" in _slots else []
             _hosts[f"aux{_c}"] = {"env": _env, "engines": _aux, "after": _after}
             for _s in _aux:
                 _refs[_s].append(f"aux{_c}")
-    if _EMBED_CPU:
+    if _EMBED_CPU and _EMBED:
         _hosts["embed_cpu"] = {
             "env": {"CUDA_VISIBLE_DEVICES": "-1", "OMP_NUM_THREADS": _EMBED_THREADS},
             "engines": {"embed": dict(_ENGINES["embed"])},
