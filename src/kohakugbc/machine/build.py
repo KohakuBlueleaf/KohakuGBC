@@ -46,6 +46,8 @@ CPU_NODES = (
     "nest_queries",
     "nest_request",
     "reparent",
+    "tag_focus",
+    "focus_request",
     "tag_request",
     "place_tags",
 )

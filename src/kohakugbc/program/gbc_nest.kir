@@ -229,5 +229,17 @@
         @hint lane="tag"
         (request)tagger(scores)
         @hint lane="cpu"
+        (graph, scores, controls)tag_focus(focus)
+        focused = None
+        (focus, controls)focus_crops(crops)
+        (crops)branch(`crop_pass`, `pooled`)
+        crop_pass:
+            @hint lane="cpu"
+            (image, graph, focus, tags, controls)focus_request(f_req)
+            @hint lane="tag"
+            (f_req)tagger(focused)
+        pooled:
+        (scores, focus, focused)with_focus(scores)
+        @hint lane="cpu"
         (graph, stats, scores, tags, controls)place_tags(graph, stats)
     untagged:

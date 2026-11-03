@@ -247,6 +247,7 @@ are the defaults under each job's own.
 | `relational`, `relate` | `both`, `end` | which relational questions; asked once at the end or after every round |
 | `relation_vertices`, `prompts` | `all`, None | relation questions on every vertex or the image vertex only; the prompt set (`json`, `json_leafcap`, `json_nest`) |
 | `probes`, `probe_score`, `probe_gap`, `small_area`, `single_tie`, `head_overlap`, `group_check`, `nest_check` | GBC-Nest's | GBC-Nest only ([docs/internals/program.md](docs/internals/program.md#gbc-nest)); its own defaults over these (`kohakugbc.program.controls.PROGRAM_DEFAULTS`) |
+| `tag_select`, `tag_min_tags`, `tag_max_regions`, `tag_local_margin` | `top`, 3, 6, 0.2 | with `regions` tagging: the top-level vertices, or the important ones (GBC-Nest; `configs/controls/tags_important.py`, [docs/internals/program.md](docs/internals/program.md#gbc-nest)) |
 | `max_side` | 1568 | pictures sent to the VLM: the longer side scaled down to this |
 | `same_threshold`, `overlap_threshold` | 0.725, 0.85 | same-object check: name-embedding similarity and box overlap |
 | `tag_threshold`, `tag_hint` | 0.35, False | tags as elements of a seeded root; tags in the element prompt |

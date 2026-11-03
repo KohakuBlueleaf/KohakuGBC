@@ -30,6 +30,7 @@ controls over its own defaults (`kohakugbc.program.controls.PROGRAM_DEFAULTS`).
 | entity query | features as an inventory | the `json_nest` prompt set: what a person would mention first (held, carried, attached, text, unusual), at most four |
 | relations | on every vertex with several children, a drawn count of them | on the image vertex only (`relation_vertices = "root"`), interactions and physical connections, none allowed |
 | shape | none | `shape`: one question per composition (`group_check`: separate things, or pieces of one area; pieces collapse into one region), identity merges by head noun and overlap, one question per proposed nesting (`nest_check`: the holder's box red, the child's blue), parents from containment where the answer is not no; a vertex may have several holders |
+| tags (optional) | `tagging`: none, the image's, or each top-level vertex's crop | also `tag_select = "important"` (`configs/controls/tags_important.py`, a tag engine): every vertex pooled in the whole picture's pass; a vertex owns a tag where its pooled score leads every region elsewhere by `tag_local_margin`, a larger vertex at the same place holding it as strongly takes it, and a word of the tag is in the vertex's captions or its descendants'; the vertices owning at least `tag_min_tags` (at most `tag_max_regions`, none inside another) get a crop pass of their own; the image vertex keeps the whole set (`kohakugbc.nodes.tags.held`) |
 
 The checks are model calls like any other (`ask`), so a machine batches them with the rest of
 the VLM's work.

@@ -67,6 +67,13 @@ DEFAULTS = {
     "tag_regions": "crop",
     "tag_region_scale": 1.0,
     "tag_region_margin": 1.0,
+    # tag_select "important": the vertices owning at least tag_min_tags of the image's tags
+    # (kohakugbc.nodes.tags.held: a lead of tag_local_margin over every region elsewhere), at
+    # most tag_max_regions, get their own tags
+    "tag_select": "top",
+    "tag_min_tags": 3,
+    "tag_max_regions": 6,
+    "tag_local_margin": 0.2,
 }
 
 CHOICES = {
@@ -78,6 +85,7 @@ CHOICES = {
     "relation_vertices": ("all", "root"),
     "prompts": (None, "json", "json_leafcap", "json_nest"),
     "tagging": ("none", "image", "regions"),
+    "tag_select": ("top", "important"),
     "tag_source": ("tagger", "given", "both"),
     "tag_placement": ("top", "place"),
     "tag_regions": ("crop", "pool"),

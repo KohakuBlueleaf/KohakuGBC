@@ -9,6 +9,12 @@ only parent is the image its own tags, nothing moved) or ``place`` (below). ``ta
 ``crop`` (each target vertex's box tagged as its own picture) or ``pool`` (the box's tokens
 pooled from the whole picture's pass, which every token sees through global attention).
 
+``tag_select = "important"`` (``regions`` tagging): every entity and composition is pooled in
+the whole picture's pass; the vertices that are the best region of at least ``tag_min_tags`` of
+the image's tags (``held``) are the important ones, at most ``tag_max_regions``, none within or
+around another; with ``crop`` they get a second pass of their own crops. The image vertex holds
+the whole set, each important vertex its own tags, every other vertex none (``place_focus``).
+
 Placement (``place``), per tag of the set:
 
 - image scope (counts such as 1girl / 2girls / multiple_girls, solo, framing, backgrounds, and
@@ -42,6 +48,10 @@ from kohakugbc.nodes.text import singular
 # engine fits the picture to exactly); a cap on what crosses to the engine, never an upscale
 TAG_SIDE = 1008
 IMAGE_CATEGORIES = {"rating", "meta", "style", "copyright"}
+# Important vertices (``held``): two regions are one place when this share of the smaller lies
+# inside the other; a larger region holding a tag within LIFT of the best takes it; a region
+# covering WHOLE of the image is the image; a candidate within (WITHIN) one taken is skipped
+SAME_PLACE, LIFT, WHOLE, WITHIN = 0.5, 0.05, 0.9, 0.8
 IDENTITY_CATEGORIES = {"character"}
 TAGGED_LABELS = ("entity", "composition")
 # General tags about the whole picture: people counts, framing, view, background, medium
@@ -109,12 +119,25 @@ def targets(vertices: list, placement: str) -> list[dict]:
     return out
 
 
+def _box(v: dict) -> list:
+    b = v["bbox"]
+    return [b["left"], b["top"], b["right"], b["bottom"]]
+
+
 @node(outputs=["request"])
 def tag_request(image: dict, graph: str, tags, controls: dict) -> dict:
     """The tagger's request: the whole image fitted to 1008 px; ``regions`` tagging, the target
     vertices (``targets``) as ``crops`` (``tag_regions = "crop"``, each its own picture) or as
-    boxes pooled from the whole image's tokens (``"pool"``); the job's tags to score."""
+    boxes pooled from the whole image's tokens (``"pool"``); with ``tag_select = "important"``,
+    every entity and composition pooled (``tag_focus`` picks from them); the job's tags to
+    score."""
     regions, crops = {}, {}
+    candidates = given_tags(tags) if controls["tag_source"] != "tagger" else []
+    if controls["tagging"] == "regions" and controls["tag_select"] == "important":
+        for v in targets(json.loads(graph)["vertices"], "place"):
+            regions[v["vertex_id"]] = _box(v)
+        picture = _capped(images.cut(image, None))
+        return {"picture": picture, "regions": regions, "crops": {}, "candidates": candidates}
     if controls["tagging"] == "regions":
         for v in targets(json.loads(graph)["vertices"], controls["tag_placement"]):
             b = v["bbox"]
@@ -125,9 +148,166 @@ def tag_request(image: dict, graph: str, tags, controls: dict) -> dict:
                     crops[v["vertex_id"]] = _capped(crop)
             else:
                 regions[v["vertex_id"]] = box
-    candidates = given_tags(tags) if controls["tag_source"] != "tagger" else []
     picture = _capped(images.cut(image, None))
     return {"picture": picture, "regions": regions, "crops": crops, "candidates": candidates}
+
+
+def _overlap(a: list, b: list) -> float:
+    """The share of the smaller box inside the other."""
+    w = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    h = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    small = min(bx_area(a), bx_area(b))
+    return w * h / small if small > 0 else 0.0
+
+
+def _within(a: list, b: list) -> bool:
+    """The smaller of two boxes lies mostly inside the other."""
+    return _overlap(a, b) >= WITHIN
+
+
+def _words(text: str) -> set:
+    return {singular(w) for w in re.findall(r"[a-z]+", text.lower()) if len(w) >= 3}
+
+
+def _texts(graph: dict) -> dict:
+    """Per vertex, the words of its captions and of its descendants' captions and names."""
+    verts = {v["vertex_id"]: v for v in graph["vertices"]}
+    out = {}
+    for vid in verts:
+        words, todo, seen = set(), [vid], set()
+        while todo:
+            u = todo.pop()
+            if u in seen or u not in verts or verts[u]["label"] == "relation":
+                continue
+            seen.add(u)
+            for d in verts[u]["descs"]:
+                words |= _words(d["text"])
+            for e in verts[u]["out_edges"]:
+                words |= _words(e["text"])
+                todo.append(e["target"])
+        out[vid] = words
+    return out
+
+
+def held(graph: dict, answer: dict, controls: dict) -> dict:
+    """Per vertex, the image's tags it owns by the pooled scores (image-scope tags left out).
+
+    Every region sees the whole picture through global attention, so pooled scores sit near 1
+    on most regions and the best one alone says nothing. A tag is owned at a place only when its
+    best region reaches the tag's threshold (times ``tag_region_scale``) and leads every region
+    elsewhere (not overlapping it by SAME_PLACE) by ``tag_local_margin``; at that place, the
+    largest region holding it within LIFT of the best owns it (a part does not take its
+    subject's tags); and a word of the tag must appear in the owner's captions or its
+    descendants' captions and names (a door does not own the skirt of a girl in front of it).
+    Regions covering WHOLE of the image or more are the image itself."""
+    verts = {v["vertex_id"]: v for v in graph["vertices"]}
+    boxes = {
+        vid: _box(v)
+        for vid, v in verts.items()
+        if v["label"] in TAGGED_LABELS and v.get("bbox") and bx_area(_box(v)) < WHOLE
+    }
+    texts = _texts(graph)
+    out: dict = {}
+    scale, margin = controls["tag_region_scale"], controls["tag_local_margin"]
+    for tag in answer["image"]:
+        if scope(tag, answer["categories"].get(tag, "general")) == "image":
+            continue
+        threshold = answer["thresholds"].get(tag)
+        if threshold is None:
+            continue
+        region = {v: s.get(tag, 0.0) for v, s in answer["regions"].items() if v in boxes}
+        if not region:
+            continue
+        best = max(region, key=lambda v: (region[v], v))
+        if region[best] < threshold * scale:
+            continue
+        same = [v for v in region if _overlap(boxes[v], boxes[best]) >= SAME_PLACE]
+        elsewhere = max((region[v] for v in region if v not in same), default=0.0)
+        if region[best] - elsewhere < margin:
+            continue
+        holders = [v for v in same if region[v] >= region[best] - LIFT]
+        owner = max(holders, key=lambda v: (bx_area(boxes[v]), v))
+        if _words(re.sub(r"\(.*?\)", "", tag).replace("_", " ")) & texts[owner]:
+            out.setdefault(owner, []).append(tag)
+    return out
+
+
+@node(outputs=["focus"])
+def tag_focus(graph: str, scores: dict, controls: dict) -> list:
+    """With ``tag_select = "important"``: the vertices owning at least ``tag_min_tags`` of the
+    image's tags (``held``), most first (larger first on ties), a vertex within or around one
+    taken already skipped, at most ``tag_max_regions``."""
+    if controls["tagging"] != "regions" or controls["tag_select"] != "important":
+        return []
+    g = json.loads(graph)
+    boxes = {v["vertex_id"]: _box(v) for v in g["vertices"] if v.get("bbox")}
+    counts = {v: len(t) for v, t in held(g, scores, controls).items() if v in boxes}
+    ranked = [v for v, n in counts.items() if n >= controls["tag_min_tags"]]
+    ranked.sort(key=lambda v: (-counts[v], -bx_area(boxes[v]), v))
+    chosen: list = []
+    for v in ranked:
+        if len(chosen) >= controls["tag_max_regions"]:
+            break
+        if not any(_within(boxes[v], boxes[c]) for c in chosen):
+            chosen.append(v)
+    return chosen
+
+
+@node(outputs=["go"])
+def focus_crops(focus: list, controls: dict) -> bool:
+    """Whether the chosen vertices get a crop pass of their own (``tag_regions = "crop"``)."""
+    return bool(focus) and controls["tag_regions"] == "crop"
+
+
+@node(outputs=["request"])
+def focus_request(image: dict, graph: str, focus: list, tags, controls: dict) -> dict:
+    """The tagger's second request: the chosen vertices' crops."""
+    by_id = {v["vertex_id"]: v for v in json.loads(graph)["vertices"]}
+    crops = {}
+    for vid in focus:
+        crop = images.cut(image, _box(by_id[vid]))
+        if min(crop.shape[:2]) > 0:
+            crops[vid] = _capped(crop)
+    candidates = given_tags(tags) if controls["tag_source"] != "tagger" else []
+    picture = _capped(images.cut(image, None))
+    return {"picture": picture, "regions": {}, "crops": crops, "candidates": candidates}
+
+
+@node(outputs=["scores"])
+def with_focus(scores: dict, focus: list, focused) -> dict:
+    """The first pass's scores with the chosen vertices and, from a crop pass, their crops' own
+    tags."""
+    out = {**scores, "focus": list(focus)}
+    if focused:
+        out["crops"] = focused.get("crops", {})
+        out["categories"] = {**scores["categories"], **focused["categories"]}
+        out["thresholds"] = {**scores["thresholds"], **focused["thresholds"]}
+    return out
+
+
+def bx_area(b: list) -> float:
+    return max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+
+
+def place_focus(graph: dict, answer: dict, given: list[str], controls: dict) -> dict:
+    """``tag_select = "important"``: the image vertex holds the whole set; each chosen vertex its
+    crop's own tags (a crop pass), else the tags it holds by the pooled scores (``held``);
+    image-scope tags left out; every other vertex none."""
+    vertices = graph["vertices"]
+    root = vertices[0]["vertex_id"]
+    out: dict = {v["vertex_id"]: {} for v in vertices}
+    out[root] = dict(_tagset(answer, given, controls))
+    pooled = held(graph, answer, controls)
+    crops = answer.get("crops", {})
+    for vid in answer.get("focus", []):
+        if vid in crops:
+            own = crops[vid]
+        else:
+            own = {t: answer["regions"][vid][t] for t in pooled.get(vid, [])}
+        for tag, p in own.items():
+            if scope(tag, answer["categories"].get(tag, "general")) != "image":
+                out[vid][tag] = p
+    return out
 
 
 def _structure(vertices: list) -> tuple[dict, dict]:
@@ -181,6 +361,8 @@ def _tagset(answer: dict, given: list[str], controls: dict) -> dict:
 
 def place(graph: dict, answer: dict, given: list[str], controls: dict) -> dict:
     """``{vertex_id: {tag: score}}`` (see the module's rules)."""
+    if controls["tag_select"] == "important":
+        return place_focus(graph, answer, given, controls)
     if controls["tag_placement"] == "top":
         return place_top(graph, answer, given, controls)
     vertices = graph["vertices"]
@@ -284,6 +466,7 @@ def place_tags(graph: str, stats: dict, scores: dict, tags, controls: dict) -> t
         "categories": scores["categories"],
         "regions": scores["regions"],
         "crops": scores.get("crops", {}),
+        "focus": scores.get("focus", []),
     }
     placed_n = sum(len(t) for t in placed.values())
     stats = {**stats, "tags": placed_n, "tags_on_image": on_image}
