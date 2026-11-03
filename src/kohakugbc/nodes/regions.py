@@ -156,7 +156,8 @@ def entity_record(region: dict, reply: str) -> dict:
     reply says the entity is absent or cannot be read."""
     out = parse.entity(reply, region["id"], region["text"])
     ids = [[region["id"], "entity", region["text"]]]
-    return {**record(ids, region["box"], out["descs"], out["entities"]), "raw": reply}
+    rec = {**record(ids, region["box"], out["descs"], out["entities"]), "raw": reply}
+    return {**rec, "free": True} if region.get("free") else rec
 
 
 @node(outputs=["entities", "depth", "cap", "look"])

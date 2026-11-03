@@ -47,7 +47,7 @@ negligible).
 ## Engines in host processes
 
 The same configuration (96 resident, Togeari telemetry on) with every engine in an engine host
-process per card (`GBC_HOSTING=process`, the default: the machine's process holds connectors
+process per card (the machine's process holds connectors
 only, [engine hosts](../internals/engine-host.md)) against every engine in the machine's
 process:
 
@@ -167,3 +167,50 @@ KohakuvLLM's grammar against prompt + one retry, both with the INT8 state, each 
 two rounds: 0.637 vs 0.632 img/s mean (per card +2.4%, -0.3%, +0.4%, +0.3%): level, with every
 reply valid. The 3090's best configuration is the 5090's: in-process, PhasedScheduler, grammar,
 INT8 GDN state.
+
+## Tokenomos
+
+`GBC_VLM_ENGINE=tokenomos`, the VLM in the card's engine host beside SAM 3 and EmbeddingGemma,
+`mid.py` + `sam3.py`, one card, COCO val2017 images (long side 640 px at most, median 0.27 Mpx, so
+`max_side` 1568 never applies):
+
+| Card | VLM | Images | Resident jobs | Images ok | img/s |
+|---|---|---|---|---|---|
+| RTX 5090 | LFM3-VL 2B | 1200 | 384 | 1200 / 1200 | 4.72 |
+| RTX 5090 | LFM3 Omni 2B | 300 | 384 | 300 / 300 | 3.31 |
+| RTX 5090 | Qwen3.5 4B | 1200 | 384 | 1200 / 1200 | 2.65 |
+| RTX 5090 | Gemma 4 E4B | 1200 | 384 | 1200 / 1200 | 2.27 |
+| RTX 5090 | Qwen3.5 9B | 1200 | 384 | 1200 / 1200 | 2.23 |
+| RTX 5090 | Gemma 4 12B | 300 | 384 | 300 / 300 | 1.06 |
+| RTX 5090 | Qwen3.8 27B | 300 | 384 | 300 / 300 | 0.71 |
+| RTX 5090 | Gemma 4 31B | 300 | 96 | 300 / 300 | 0.15 |
+| RTX 3090 | LFM3-VL 2B bf16 | 1200 | 384 | 1200 / 1200 | 1.61 |
+| RTX 3090 | LFM3-VL 2B W8A8, rotate 16 | 1200 | 384 | 1200 / 1200 | 1.46 |
+| RTX 2080 Ti | LFM3-VL 2B fp16 | 100 | 192 | 100 / 100 | 0.36 |
+| RTX 2080 Ti | LFM3-VL 2B W8A8, rotate 16 | 412 | 192 | 412 / 412 | 0.29 |
+
+Qwen3.5 4B on the 5090 by resident jobs: 96 1.65 img/s, 192 2.02, 384 2.65, 768 2.65. From 384
+SAM 3 binds. On the 3090 it is saturated at every job count, and on the 2080 Ti both the VLM and
+SAM 3 fill the card.
+
+## GBC-Nest on six cards
+
+One machine over four RTX 3090s and two RTX 2080 Tis: LFM3-VL 2B on Tokenomos on the 3090s
+(`GBC_VLM_CARDS=0,1,4,5`, `GBC_TK_LEAVE_GB=8`), SAM 3 and EmbeddingGemma on all six
+(`GBC_AUX_CARDS=0,1,2,3,4,5`, `GBC_DETECT_SELECT=throughput`), 32 CPU worker processes,
+`configs/programs/gbc_nest.py` (GBC's row: `mid.py` + `sam3.py`). 1200 images: COCO val2017's
+first 1000 and 200 Danbooru general-rated images.
+
+| Program | VLM | SAM 3 cards | SAM 3 side | img/s | VLM requests / image | VLM busy | SAM 3 busy |
+|---|---|---|---|---|---|---|---|
+| GBC-Nest | W8A8, rotate 16 | all six | 1008 | 5.14 | 16.8 | 0.97 | 0.88 |
+| GBC-Nest | W8A8, rotate 16 | all six | 672 | 7.67 | 16.3 | 0.95 | 0.76 |
+| GBC-Nest | bf16 | all six | 672 | 8.12 | 16.4 | 0.95 | 0.69 |
+| GBC-Nest | W8A8, rotate 16 | 2080 Tis | 672 | 4.13 | 16.4 | 0.98 | 0.93 |
+| GBC | W8A8, rotate 16 | all six | 672 | 9.76 | 13.0 | 0.95 | 0.80 |
+
+Every run 1200 / 1200 images. The VLM binds: GBC-Nest's 3.3 more requests per image (its
+nesting and group checks, and the regions its probes find) cost 21% of GBC's rate. SAM 3 at 672 px
+is 1.5x the rate at 1008 px. Against 20 hand-curated graphs (vertices matched at IoU 0.5, one to one)
+the machine's GBC-Nest graphs score precision 0.53, recall 0.46, parent right 0.63 at 672 px and
+0.53, 0.44, 0.58 at 1008 px.

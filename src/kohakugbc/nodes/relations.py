@@ -128,7 +128,8 @@ def relational_queries(image: dict, records: list, controls: dict) -> list:
             continue
         c, r = _queries_for(v, by_id, image["key"])
         compositions += c
-        relations += r
+        if controls["relation_vertices"] == "all" or v["label"] == "image":
+            relations += r
     match controls["relational"]:
         case "relation":
             return relations

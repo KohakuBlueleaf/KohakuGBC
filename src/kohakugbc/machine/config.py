@@ -12,6 +12,8 @@ from pathlib import Path
 DEFAULTS = {
     "engines": {"cpu": {"entry": "python", "workers": 8, "mode": "thread"}},
     "machine": {
+        # The program every job runs (kohakugbc.program.PROGRAMS)
+        "program": "gbc",
         # Admission: jobs are admitted while the VLM lane reports fewer than this many waiting,
         # and every lane of ``waiting`` ({lane: items}) fewer than its own limit
         "vlm_waiting": 64,

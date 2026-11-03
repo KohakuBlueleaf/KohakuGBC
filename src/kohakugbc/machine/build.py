@@ -18,7 +18,7 @@ from kohakugbc.io import sinks, sources
 from kohakugbc.machine import config as cfg_layers
 from kohakugbc.machine.waits import WaitsReport
 from kohakugbc.nodes import library
-from kohakugbc.program import ENTRY, PROGRAM
+from kohakugbc.program import program
 
 ENTRY_MODULES = builtin.MODULES
 
@@ -29,8 +29,10 @@ CPU_NODES = (
     "picture",
     "pictures",
     "image_root",
+    "nest_image_root",
     "seeded_root",
     "detected",
+    "nest_detected",
     "entity_record",
     "batch_replies",
     "coverage_root",
@@ -38,6 +40,12 @@ CPU_NODES = (
     "relational_request",
     "relational_record",
     "to_gbc",
+    "group_queries",
+    "group_request",
+    "regroup",
+    "nest_queries",
+    "nest_request",
+    "reparent",
     "tag_request",
     "place_tags",
 )
@@ -175,9 +183,10 @@ def build_parts(*layers) -> Parts:
             raise ValueError("machine.waits: needs machine.report (it writes beside it)")
         plugins.append(WaitsReport(Path(m["report"]) / "waits.jsonl", **m["waits"]))
     store = store_of(m.get("store"))
+    path, entry = program(m["program"])
     machine = Machine(
-        program=PROGRAM,
-        entry=ENTRY,
+        program=path,
+        entry=entry,
         libraries=[library.build(SlotModels(slots))],
         bind=bindings(lanes, slots, store is not None),
         admission=admission_of(lanes, m),

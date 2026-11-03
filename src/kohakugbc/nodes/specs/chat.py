@@ -18,12 +18,24 @@ from kohakugbc.nodes.text import singular
 
 HERE = Path(__file__).parent
 TEMPERATURE = 0.1
-MAX_TOKENS = {"image_query": 1024, "entity": 512, "relation": 1024, "composition": 1024}
+MAX_TOKENS = {
+    "image_query": 1024,
+    "entity": 512,
+    "relation": 1024,
+    "composition": 1024,
+    "nest": 30,
+    "group": 30,
+}
+# A prompt set holding only the prompts it changes: the others are its base set's
+BASE = {"json_nest": "json"}
 
 
 @cache
 def prompt(spec: str, name: str) -> str:
-    return (HERE / "prompts" / spec / f"{name}.txt").read_text(encoding="utf-8")
+    path = HERE / "prompts" / spec / f"{name}.txt"
+    if not path.exists() and spec in BASE:
+        return prompt(BASE[spec], name)
+    return path.read_text(encoding="utf-8")
 
 
 @cache
@@ -44,8 +56,10 @@ def request(key: str, system, query: str, images: list, schema_name, max_tokens:
 
 
 def prompt_set(controls: dict) -> str:
-    """The prompt set of the four GBC queries: leaf captions from the parent need entity replies
-    that caption their features."""
+    """The prompt set of the four GBC queries: ``prompts`` if set; else leaf captions from the
+    parent need entity replies that caption their features."""
+    if controls.get("prompts") is not None:
+        return controls["prompts"]
     return "json_leafcap" if controls["leaf_caption"] == "parent" else "json"
 
 
@@ -117,6 +131,39 @@ def entity(image_key: str, region: dict, patch, controls: dict) -> dict:
         [[None, patch]],
         "entity_leafcap.json" if spec == "json_leafcap" else "entity.json",
         MAX_TOKENS["entity"],
+    )
+
+
+# ---- checks (GBC-Nest) ---------------------------------------------------------------------------
+
+
+def nest_check(image_key: str, child: list, holder: list, picture) -> dict:
+    """Whether ``child`` ``[id, name]`` belongs within ``holder`` ``[id, name]``, both boxes drawn
+    on the picture (the holder red, the child blue)."""
+    query = prompt("check", "query_nest").format(holder=holder[1], child=child[1])
+    key = trace.vlm_key("nest", "check", image_key, child=child, holder=holder)
+    return request(
+        key,
+        prompt("check", "system_nest"),
+        query,
+        [[None, picture]],
+        "nest.json",
+        MAX_TOKENS["nest"],
+    )
+
+
+def group_check(image_key: str, vertex: str, name: str, n: int, picture) -> dict:
+    """Whether a composition's ``n`` members, drawn numbered on the picture, are separate things
+    or pieces of one area."""
+    query = prompt("check", "query_group").format(n=n, name=name)
+    key = trace.vlm_key("group", "check", image_key, vertex=vertex, name=name)
+    return request(
+        key,
+        prompt("check", "system_group"),
+        query,
+        [[None, picture]],
+        "group.json",
+        MAX_TOKENS["group"],
     )
 
 

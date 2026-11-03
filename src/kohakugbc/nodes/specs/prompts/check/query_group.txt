@@ -1,0 +1,1 @@
+The numbered boxes mark {n} regions found for '{name}'. Are they separate things, each one worth its own description (like several people, animals, objects or signs), or are they only pieces of one continuous area or mass (like parts of a forest, a field, a wall, a crowd of leaves)? Answer separate true or false.

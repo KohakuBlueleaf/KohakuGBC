@@ -1,0 +1,1 @@
+The red box marks '{holder}' and the blue box marks '{child}'. Is the {child} part of the {holder}, held or worn by it, or located within it as a place or frame (inside a panel, room, building, screen or scene region)? Answer false when the {child} only overlaps the {holder} in the picture, for example by standing in front of it or behind it.

@@ -215,6 +215,22 @@ calls are ready, across images (`scripts/docs/workflow.py`).
 Model calls are transport-only nodes (`chat`, `detector`, `embedder`); requests are built and
 replies parsed by plain nodes, so the same requests and parsing run on every engine.
 
+### GBC-Nest: the second program
+
+![GBC-Nest on one image: a grounded root (every listed element, probes for text, panels and people, one box per head noun); GBC's rounds with joins by head noun and mention-first parts; relations among the root's elements; then the graph shaped: one question per group (separate or pieces), identities merged, one question per proposed nesting, parents from containment](docs/assets/workflow_nest.jpg)
+
+In GBC the call tree is the graph: a region's parent is whichever crop's question named it.
+`gbc_nest.kir` keeps GBC's rounds for what to describe and takes the hierarchy from the boxes:
+its root keeps every element the image query lists and also looks for text, logos, comic panels
+and people where nothing named is; names sharing a head noun get one box each; a region joins a
+vertex seen before by head noun and overlap, never an ancestor; parts are what a person would
+mention first. A last stage asks one yes/no question per group (separate things, or pieces of one
+area) and per proposed nesting (the holder's and the child's boxes drawn), and sets parents
+from containment where the answer is not no, so a vertex may hang from several holders. A
+machine runs it with the layer `configs/programs/gbc_nest.py`
+([docs/internals/program.md](docs/internals/program.md#gbc-nest),
+`scripts/docs/workflow_nest.py`).
+
 ### Controls
 
 One job input holds every choice about what the graph contains; a configuration's `controls`
@@ -229,6 +245,8 @@ are the defaults under each job's own.
 | `round_size`, `priority`, `max_breadth_rounds`, `coverage_max_new` | None, `area_depth`, 1, 4 | regions per round and their order; coverage rounds |
 | `entity_batch`, `leaf_caption` | 1, `query` | regions per VLM request; leaves captioned by their own request or by the parent's reply |
 | `relational`, `relate` | `both`, `end` | which relational questions; asked once at the end or after every round |
+| `relation_vertices`, `prompts` | `all`, None | relation questions on every vertex or the image vertex only; the prompt set (`json`, `json_leafcap`, `json_nest`) |
+| `probes`, `probe_score`, `probe_gap`, `small_area`, `single_tie`, `head_overlap`, `group_check`, `nest_check` | GBC-Nest's | GBC-Nest only ([docs/internals/program.md](docs/internals/program.md#gbc-nest)); its own defaults over these (`kohakugbc.program.controls.PROGRAM_DEFAULTS`) |
 | `max_side` | 1568 | pictures sent to the VLM: the longer side scaled down to this |
 | `same_threshold`, `overlap_threshold` | 0.725, 0.85 | same-object check: name-embedding similarity and box overlap |
 | `tag_threshold`, `tag_hint` | 0.35, False | tags as elements of a seeded root; tags in the element prompt |
@@ -270,14 +288,11 @@ result is exactly the sequential run's. Across jobs, every model call of one kin
 lane: the detect lane batches crops from many images into one forward, the VLM lane keeps its
 units' queues full.
 
-Each lane's units are connectors. With `GBC_HOSTING=process` (the default of
-`configs/machine/qwen35_card.py`), the machine starts one `gbc host` per card running that card's
-engines, and the lane holds a remote unit for each. The dispatcher then has its process's GIL to
-itself: it does not share it with vLLM's frontend or SAM 3's preparation. Images and tensors
-travel in shared-memory blocks, everything else as small messages, and capacity and load are
-reported back at least every 0.2 s
-([engine hosts](docs/internals/engine-host.md)). The same engines in the machine's process
-(`GBC_HOSTING=inprocess`) remain one setting away.
+Each lane's units are connectors. `configs/machine/qwen35_card.py` starts one `gbc host` per card
+running that card's engines, and the lane holds a remote unit for each. The dispatcher has its
+process's GIL to itself: it does not share it with a VLM's frontend or SAM 3's preparation. Images
+and tensors travel in shared-memory blocks, everything else as small messages, and capacity and
+load are reported back at least every 0.2 s ([engine hosts](docs/internals/engine-host.md)).
 
 ![The GBC machine on one RTX 5090: 240 images, every engine call per image over time, calls in flight per lane, and one image's overlapping calls](docs/assets/machine.jpg)
 

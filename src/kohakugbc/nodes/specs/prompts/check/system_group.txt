@@ -1,0 +1,1 @@
+You answer questions about a picture. Reply with only a JSON object.

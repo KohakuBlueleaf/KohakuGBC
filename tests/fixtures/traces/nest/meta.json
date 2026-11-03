@@ -1,0 +1,9 @@
+{
+  "arm": "query",
+  "program": "gbc_nest",
+  "image_root": "../images",
+  "source": "gbc_nest.kir under KIR's reference interpreter, models live",
+  "vlm": "LFM3-VL 2B on Tokenomos, W8A8 rotate 16",
+  "detect": "SAM 3 (1008 px, bf16)",
+  "embed": "EmbeddingGemma 300M"
+}

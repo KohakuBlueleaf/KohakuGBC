@@ -9,20 +9,23 @@ from kohakugbc.nodes.registry import node
 
 
 def described(records: list) -> int:
-    """Image and entity vertices so far: records with descriptions."""
-    return sum(1 for r in records if r["descs"])
+    """Image and entity vertices so far that count against the budget: records with
+    descriptions, except a free region's (``kohakugbc.nodes.nest``)."""
+    return sum(1 for r in records if r["descs"] and not r.get("free"))
 
 
 def _order(region: dict, controls: dict) -> tuple:
+    """Free regions first, then by ``priority``."""
     b = region["box"]
     area = 1.0 if b is None else max(0.0, (b[2] - b[0]) * (b[3] - b[1]))
+    first = 0 if region.get("free") else 1
     match controls["priority"]:
         case "area":
-            return (-area, region["order"])
+            return (first, -area, region["order"])
         case "deep":
-            return (-region["depth"], -area, region["order"])
+            return (first, -region["depth"], -area, region["order"])
         case _:
-            return (region["depth"], -area, region["order"])
+            return (first, region["depth"], -area, region["order"])
 
 
 @node(outputs=["frontier"])

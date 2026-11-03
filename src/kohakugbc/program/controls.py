@@ -32,9 +32,23 @@ DEFAULTS = {
     # Regions per VLM request; leaves captioned by the parent's reply
     "entity_batch": 1,
     "leaf_caption": "query",
-    # Which relational questions, and where they are asked
+    # Which relational questions, and where they are asked: relation questions on every vertex
+    # with several children, or on the image vertex only (``relation_vertices``)
     "relational": "both",
     "relate": "end",
+    "relation_vertices": "all",
+    # The prompt set of the image, entity, relation and composition queries (None: ``json``, or
+    # ``json_leafcap`` with leaf_caption "parent"); a set's missing files are its base set's
+    "prompts": None,
+    # GBC-Nest only (kohakugbc.nodes.nest, kohakugbc.nodes.shape)
+    "probes": [],
+    "probe_score": 0.5,
+    "probe_gap": 0.5,
+    "small_area": 0.0,
+    "single_tie": 0.9,
+    "head_overlap": 0.5,
+    "group_check": True,
+    "nest_check": True,
     # Pictures the VLM is sent: the longer side scaled down to this many pixels
     "max_side": 1568,
     # Same-object check: embedding similarity at least this
@@ -61,6 +75,8 @@ CHOICES = {
     "leaf_caption": ("query", "parent"),
     "relational": ("both", "relation", "composition", "none"),
     "relate": ("end", "every_round"),
+    "relation_vertices": ("all", "root"),
+    "prompts": (None, "json", "json_leafcap", "json_nest"),
     "tagging": ("none", "image", "regions"),
     "tag_source": ("tagger", "given", "both"),
     "tag_placement": ("top", "place"),
@@ -68,9 +84,31 @@ CHOICES = {
 }
 
 
-def complete(controls: dict | None) -> dict:
-    """The defaults updated by ``controls``; an unknown name or value is an error."""
-    out = dict(DEFAULTS)
+# Each program's defaults over DEFAULTS (GBC-Nest: the mid + sam3 presets, then its own)
+PROGRAM_DEFAULTS = {
+    "gbc": {},
+    "gbc_nest": {
+        "min_nodes": 8,
+        "max_nodes": 12,
+        "max_rounds": 4,
+        "max_top_level": 16,
+        "max_instances_per_text": 4,
+        "max_depth": 3,
+        "box_score": 0.3,
+        "nms_iou": 0.7,
+        "nms_iou_single": 0.05,
+        "drop_containers": False,
+        "relation_vertices": "root",
+        "prompts": "json_nest",
+        "probes": ["words", "logo", "comic panel", "person"],
+        "small_area": 0.02,
+    },
+}
+
+
+def complete(controls: dict | None, program: str = "gbc") -> dict:
+    """The program's defaults updated by ``controls``; an unknown name or value is an error."""
+    out = {**DEFAULTS, **PROGRAM_DEFAULTS[program]}
     for name, value in (controls or {}).items():
         if name not in DEFAULTS:
             raise ValueError(f"unknown control {name!r}")

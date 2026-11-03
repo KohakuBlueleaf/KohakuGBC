@@ -1,8 +1,38 @@
-# The GBC program
+# The GBC programs
 
-`kohakugbc/program/gbc.kir` is one image job: image, existing captions and tags, controls in;
-the GBC graph (JSON text) and its counts out. `kohakugbc.nodes.library.build()` is its node
-library `gbc`. Every value is passed and returned; no node mutates its inputs.
+Two programs share the node library `gbc` (`kohakugbc.nodes.library.build()`), each one image
+job: image, existing captions and tags, controls in; the GBC graph (JSON text) and its counts
+out. Every value is passed and returned; no node mutates its inputs.
+
+| Program | File | Entry | Graph |
+|---|---|---|---|
+| `gbc` | `kohakugbc/program/gbc.kir` | `gbc` | GBC's procedure: the call tree is the graph |
+| `gbc_nest` | `kohakugbc/program/gbc_nest.kir` | `gbc_nest` | GBC-Nest: GBC's rounds over a grounded root, then parents from box containment, each nesting and each group checked by one question |
+
+A machine runs one program, `machine.program` in its configuration (`gbc` by default;
+`configs/programs/gbc_nest.py` is the layer for GBC-Nest). Under KIR's reference interpreter,
+`kohakugbc.program.reference.run(inputs, models, program=...)`. Each program completes the job's
+controls over its own defaults (`kohakugbc.program.controls.PROGRAM_DEFAULTS`).
+
+![GBC's workflow](../assets/workflow.jpg)
+
+![GBC-Nest's workflow](../assets/workflow_nest.jpg)
+
+## GBC-Nest
+
+`gbc_nest.kir` is `gbc.kir` with four nodes swapped and one stage added:
+
+| Step | GBC | GBC-Nest |
+|---|---|---|
+| root | the elements the concise caption tags | every element the image query lists (`nest_image_root`); a bracket that only modifies the next ("[anime-style] [girl]") is not one; the `probes` phrases (words, logo, comic panel, person) beside them (`with_probes`) |
+| detection | per name: score, NMS, a box holding another dropped | `nest_detected`: single names sharing a head noun get one box each, one to one; a single name takes the largest of its boxes within `single_tie` of its best; containers kept; a probe box kept from `probe_score`, only where no named element's box overlaps it by `probe_gap` (IoU); a region under `small_area` of the image a leaf captioned by its name; a probe region free (described first, outside the node budget) |
+| joins | an overlapping vertex whose name is the same object (embedding) | `nest_register`: never an ancestor; the best-overlapping vertex sharing the head noun (`head_overlap` both ways), else GBC's rule |
+| entity query | features as an inventory | the `json_nest` prompt set: what a person would mention first (held, carried, attached, text, unusual), at most four |
+| relations | on every vertex with several children, a drawn count of them | on the image vertex only (`relation_vertices = "root"`), interactions and physical connections, none allowed |
+| shape | none | `shape`: one question per composition (`group_check`: separate things, or pieces of one area; pieces collapse into one region), identity merges by head noun and overlap, one question per proposed nesting (`nest_check`: the holder's box red, the child's blue), parents from containment where the answer is not no; a vertex may have several holders |
+
+The checks are model calls like any other (`ask`), so a machine batches them with the rest of
+the VLM's work.
 
 ## Structure
 

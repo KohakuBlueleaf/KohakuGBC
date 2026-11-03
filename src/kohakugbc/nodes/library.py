@@ -5,9 +5,9 @@
 call it (the KIR reference interpreter, replay).
 """
 
-from kohakugbc.nodes import images, regions, relations, root, rounds, tags
+from kohakugbc.nodes import images, nest, regions, relations, root, rounds, shape, tags
 from kohakugbc.nodes.registry import Models, build
 
-MODULES = (images, regions, relations, root, rounds, tags)
+MODULES = (images, regions, relations, root, rounds, tags, nest, shape)
 
 __all__ = ["MODULES", "Models", "build"]

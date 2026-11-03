@@ -1,6 +1,7 @@
-"""The GBC program reproduces the PoC: recorded PoC jobs (``tests/fixtures/traces``, cut from
-``scripts/trace/poc_arms.py`` runs) replayed through KIR's reference interpreter give the PoC's
-graph, by digest; every model request the program makes is one the PoC made, in the same
+"""The GBC programs reproduce their recorded runs: recorded jobs (``tests/fixtures/traces``: the
+PoC's arms, cut from ``scripts/trace/poc_arms.py`` runs, for ``gbc``; a GBC-Nest run for
+``gbc_nest``, its trace's ``meta.program``) replayed through KIR's reference interpreter give the
+recorded graph, by digest; every model request the program makes is one the run made, in the same
 words."""
 
 import json
@@ -10,7 +11,7 @@ import pytest
 
 from kohakugbc.graph import digest
 from kohakugbc.io.sources import TraceJobs
-from kohakugbc.nodes import regions, rounds
+from kohakugbc.nodes import regions, rounds, shape
 from kohakugbc.nodes.specs import detect as det
 from kohakugbc.nodes.specs.replay import ReplayModels
 from kohakugbc.nodes.specs.trace import Trace
@@ -19,6 +20,14 @@ from kohakugbc.program.reference import run
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "traces"
 ARMS = sorted(p.name for p in FIXTURES.iterdir() if (p / "meta.json").exists())
+
+
+def program_of(arm: str) -> str:
+    return Trace(FIXTURES / arm).meta.get("program", "gbc")
+
+
+POC_ARMS = [a for a in ARMS if program_of(a) == "gbc"]
+NEST_ARMS = [a for a in ARMS if program_of(a) == "gbc_nest"]
 
 
 def inputs_of(arm: str) -> dict:
@@ -36,16 +45,18 @@ def normalized(graph) -> dict | None:
 def replay(arm: str) -> list[tuple[str, bool, ReplayModels]]:
     trace = Trace(FIXTURES / arm)
     inputs = inputs_of(arm)
+    program = program_of(arm)
     out = []
     for key, job in sorted(trace.jobs.items()):
         models = ReplayModels(trace)
-        graph = run(inputs[key], models)["graph"]
+        graph = run(inputs[key], models, program=program)["graph"]
         out.append((key, digest(normalized(graph)) == digest(normalized(job["graph"])), models))
     return out
 
 
 def test_fixtures_cover_the_arms():
-    assert {"text", "query", "tags", "batch4", "leafcap"} <= set(ARMS)
+    assert {"text", "query", "tags", "batch4", "leafcap"} <= set(POC_ARMS)
+    assert NEST_ARMS
     # Every key names its whole input: no key was answered twice in different words
     assert all(not Trace(FIXTURES / arm).conflicts for arm in ARMS)
 
@@ -74,11 +85,28 @@ def test_replay_catches_a_broken_node(monkeypatch):
     assert changed > 0
 
 
+def test_nest_replay_catches_a_broken_shape(monkeypatch):
+    # No parents from containment: some GBC-Nest graph must change
+    monkeypatch.setattr(shape, "contain", lambda g, answers: None)
+    changed = sum(not equal for arm in NEST_ARMS for _, equal, _ in replay(arm))
+    assert changed > 0
+
+
+def test_nest_asks_its_checks():
+    """The GBC-Nest run asked nesting and group questions, and the replay asks each of them."""
+    for arm in NEST_ARMS:
+        trace = Trace(FIXTURES / arm)
+        nodes = {json.loads(k)["node"] for k in trace.vlm}
+        assert {"nest", "group"} <= nodes, nodes
+        asked = {json.loads(k)["node"] for _, _, m in replay(arm) for k in m.asked}
+        assert {"nest", "group"} <= asked
+
+
 def test_detection_selection_equals_poc():
     """Every recorded detector call: the boxes the program keeps from the raw output are the
     ones ml-gbc kept (relative to the crop, with confidences)."""
     checked = 0
-    for arm in ARMS:
+    for arm in POC_ARMS:
         trace = Trace(FIXTURES / arm)
         for rec in trace.detect.values():
             key = json.loads(rec["key"])
@@ -104,7 +132,7 @@ def test_detection_selection_equals_poc():
 
 def test_same_object_decisions_equal_poc():
     checked = 0
-    for arm in ARMS:
+    for arm in POC_ARMS:
         trace = Trace(FIXTURES / arm)
         for d in trace.same:
             va, vb = trace.embed.get(d["a"]), trace.embed.get(d["b"])
