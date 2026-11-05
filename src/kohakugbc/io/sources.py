@@ -8,6 +8,7 @@ from pathlib import Path
 
 from togeari import SourceItem
 
+from kohakugbc.io.vault import done_keys
 from kohakugbc.nodes.specs.trace import Trace
 
 IMAGES = ("*.jpg", "*.jpeg", "*.png", "*.webp", "*.bmp")
@@ -51,11 +52,21 @@ class Folder(_Source):
 
 class Jsonl(_Source):
     """One job per line: ``image`` (path, relative to the file's folder or absolute), and
-    optionally ``key``, ``captions``, ``tags``, ``controls``."""
+    optionally ``key``, ``captions``, ``tags``, ``controls``. ``skip``: graph vaults
+    (``kohakugbc.io.vault``) whose stored keys are not run again; a ``shard`` (``rank``,
+    ``world``) takes every ``world``-th line from ``rank``, before the skip, so a machine's
+    share stays the same when it runs again."""
 
-    def __init__(self, path: str, controls: dict | None = None):
+    def __init__(self, path: str, controls: dict | None = None, skip: list[str] | None = None):
         super().__init__(controls)
         self.path = Path(path)
+        self.skip = list(skip or [])
+
+    def __iter__(self):
+        done = done_keys(self.skip)
+        for item in super().__iter__():
+            if item.key not in done:
+                yield item
 
     def items(self):
         with open(self.path, encoding="utf-8") as f:
@@ -110,11 +121,23 @@ class TraceJobs(_Source):
 
 
 def build(spec: dict | None, controls: dict):
+    """``spec``: ``kind`` and its arguments; ``shard`` ``[rank, world]`` on any kind."""
+    source = _build(spec, controls)
+    shard = (spec or {}).get("shard")
+    if source is not None and shard:
+        rank, world = (int(x) for x in shard)
+        if not 0 <= rank < world:
+            raise ValueError(f"shard {rank}/{world}: rank in 0..{world - 1}")
+        source = source.shard(rank, world)
+    return source
+
+
+def _build(spec: dict | None, controls: dict):
     match (spec or {}).get("kind"):
         case "folder":
             return Folder(spec["path"], controls)
         case "jsonl":
-            return Jsonl(spec["path"], controls)
+            return Jsonl(spec["path"], controls, spec.get("skip"))
         case "trace":
             return TraceJobs(
                 spec["path"],

@@ -13,8 +13,8 @@ Layers are dicts or Python files whose lower-case module-level names form one
 |---|---|
 | `engines` | per slot (`vlm`, `detect`, `embed`, `cpu`): `entry` and the entry's settings |
 | `machine` | `vlm_waiting`, `waiting`, `max_jobs` (admission), `window`, `start_timeout_s` (a unit's start, 600), `record`, `store` (`"memory"`), `report` (a RunReport folder), `waits` (`{"every_s", "limit"}`: why jobs wait, sampled into the report's `waits.jsonl`, `kohakugbc.machine.waits`; about 180 ms of dispatcher time per sample on the RTX 5090 machine), `knobs` (other Togeari knobs) |
-| `source` | `{"kind": "folder" \| "jsonl" \| "trace", "path": ...}` |
-| `sink` | `{"kind": "memory"}` or `{"kind": "graphs", "path": ...}` |
+| `source` | `{"kind": "folder" \| "jsonl" \| "trace", "path": ...}`; `"shard": [rank, world]` (every `world`-th job from `rank`); a `jsonl` source's `"skip"` (graph vaults whose keys do not run again) |
+| `sink` | `{"kind": "memory"}`, `{"kind": "graphs", "path": ...}` or `{"kind": "vault", "path": ...}` (`kohakugbc.io.vault`: graphs, counts and failures by job key) |
 | `controls` | defaults under every job's own controls |
 
 ## Slots and entries

@@ -342,5 +342,21 @@ machine = {
     "waits": {"every_s": float(_WAITS)} if _WAITS else None,
     "knobs": {"events": _EVENTS},
 }
-source = {"kind": "folder", "path": os.environ.get("GBC_IMAGES", "images")}
-sink = {"kind": "graphs", "path": f"{_OUT}/graphs.jsonl"}
+# Jobs: GBC_JOBS (a jsonl of jobs, kohakugbc.io.sources.Jsonl), else every image under
+# GBC_IMAGES; GBC_SHARD=rank/world takes this machine's share of them. Graphs: GBC_VAULT (a
+# kohakugbc.io.vault file, indexed by job key; its stored keys are skipped when the jobs run
+# again), else GBC_OUT/graphs.jsonl
+_JOBS = os.environ.get("GBC_JOBS", "")
+_VAULT = os.environ.get("GBC_VAULT", "")
+_SHARD = os.environ.get("GBC_SHARD", "")
+if _JOBS:
+    source = {"kind": "jsonl", "path": _JOBS, "skip": [_VAULT] if _VAULT else []}
+else:
+    source = {"kind": "folder", "path": os.environ.get("GBC_IMAGES", "images")}
+if _SHARD:
+    source["shard"] = [int(x) for x in _SHARD.split("/")]
+sink = (
+    {"kind": "vault", "path": _VAULT}
+    if _VAULT
+    else {"kind": "graphs", "path": f"{_OUT}/graphs.jsonl"}
+)

@@ -364,8 +364,8 @@ a small file of overrides.
 |---|---|
 | `engines` | per slot: `entry` and the entry's settings |
 | `machine` | `vlm_waiting`, `waiting` (`{lane: items}`), `max_jobs`, `window`, `start_timeout_s`, `record` (the fraction of jobs recorded for conformance), `store`, `report` (a run-report folder), `knobs` (any Togeari knob) |
-| `source` | `{"kind": "folder" \| "jsonl" \| "trace", "path": ...}`: images, or jobs with `captions`, `tags` and `controls` per image |
-| `sink` | `{"kind": "graphs", "path": ...}` (graphs, failures, per-job counts) or `{"kind": "memory"}` |
+| `source` | `{"kind": "folder" \| "jsonl" \| "trace", "path": ...}`: images, or jobs with `key`, `captions`, `tags` and `controls` per image; `"shard": [rank, world]` takes one machine's share; a `jsonl` source's `"skip": [vault, ...]` leaves out the keys those vaults hold |
+| `sink` | `{"kind": "graphs", "path": ...}` (graphs, failures, per-job counts), `{"kind": "vault", "path": ...}` (the same in one KohakuVault file, indexed by job key) or `{"kind": "memory"}` |
 | `controls` | defaults under every job's own controls |
 
 Every engine entry, with all its settings: [docs/guides/engines.md](docs/guides/engines.md).
@@ -376,8 +376,11 @@ Every engine entry, with all its settings: [docs/guides/engines.md](docs/guides/
 `vertex_id`, `bbox`, `label` image / entity / composition / relation, `descs` with their kind,
 `in_edges` and `out_edges` labelled by their grounding phrase). Beside it, `graphs.failures.jsonl`
 (one line per failed job: key, kind, message) and `graphs.stats.jsonl` (per job: vertices by
-kind, edges, captions, depth, leaves). A run report (`machine.report`) holds the configuration,
-the environment, per-second metrics of every lane and unit, events, recorded jobs and a summary.
+kind, edges, captions, depth, leaves). The `vault` sink (`kohakugbc.io.vault`) keeps the same
+three in one KohakuVault file, by job key: `graphs` (the graph JSON, zlib), `stats`, `failures`;
+`read_vault` reads them back, and `scripts/data/index_jobs.py` makes jobs keyed `set/key` from
+`set<TAB>key<TAB>path` index files, so a graph and its image find each other. A run report
+(`machine.report`) holds the configuration, the environment, per-second metrics of every lane and unit, events, recorded jobs and a summary.
 
 Captioned images ship as a GBC dataset (`kohakugbc_data.dataset`, in `kohakugbc-data`): sharded
 folders of KohakuClip image shards, graphs and per-image metadata in KohakuVault, joined by key

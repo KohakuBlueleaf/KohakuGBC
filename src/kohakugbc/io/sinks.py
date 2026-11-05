@@ -2,7 +2,8 @@
 
 ``GraphJsonl(path)``: one GBC graph per line (the graph's JSON text as resolution wrote it);
 failed jobs, one per line with key and reason, in ``<path stem>.failures.jsonl``; each job's
-counts in ``<path stem>.stats.jsonl``.
+counts in ``<path stem>.stats.jsonl``. ``vault``: ``kohakugbc.io.vault.GraphVault``, graphs,
+counts and failures indexed by job key in one KohakuVault file.
 """
 
 import json
@@ -10,6 +11,8 @@ import threading
 from pathlib import Path
 
 from togeari.io import Memory
+
+from kohakugbc.io.vault import GraphVault
 
 
 class GraphJsonl:
@@ -53,5 +56,7 @@ def build(spec: dict | None):
             return Memory()
         case "graphs":
             return GraphJsonl(spec["path"])
+        case "vault":
+            return GraphVault(spec["path"])
         case kind:
-            raise ValueError(f"sink kind {kind!r}: one of memory, graphs")
+            raise ValueError(f"sink kind {kind!r}: one of memory, graphs, vault")
