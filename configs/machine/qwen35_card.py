@@ -198,7 +198,9 @@ _INPROCESS = {
 }
 # GBC_VLM_ENGINE=tokenomos: the VLM on Tokenomos in the card's engine host: GBC_VLM_MODEL,
 # GBC_TK_ARCH / GBC_TK_ENGINE (JSON: the model declaration's and the engine's kwargs),
-# GBC_TK_LEAVE_GB (memory left to SAM 3 and EmbeddingGemma on the card; 5, 0 with neither there)
+# GBC_TK_LEAVE_GB (memory left to SAM 3 and EmbeddingGemma on the card; 5, 0 with neither there),
+# GBC_TRACE_DIR (every request's stage stamps and the engine loop's iteration records, written
+# there at stop)
 _ON_CARD = (_DETECT or _EMBED) and set(_VLM_CARDS) & set(_AUX_CARDS)
 _TOKENOMOS = {
     "entry": "tokenomos",
@@ -210,6 +212,7 @@ _TOKENOMOS = {
     "sampling": _json("GBC_VLM_SAMPLING"),
     "chat_kwargs": _json("GBC_VLM_CHAT_KWARGS"),
     "lane": _VLM_LANE,
+    "trace_dir": os.environ.get("GBC_TRACE_DIR") or None,
 }
 _HTTP = {
     "entry": "api",

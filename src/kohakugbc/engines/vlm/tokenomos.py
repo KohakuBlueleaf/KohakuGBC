@@ -23,10 +23,13 @@ slots), ``structured`` (``grammar``: the device grammar holds the reply to the r
 """
 
 import itertools
+import json
 import os
 import threading
+import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from togeari import Cancelled, EngineBase, ItemError, Load, Ok, UnitError
 from tokenomos import LLM, SamplingParams, models
@@ -39,6 +42,19 @@ from kohakugbc.nodes.specs.parse import reply_ok
 
 STRUCTURED = ("grammar", "prompt")
 GIB = 1 << 30
+# Seconds between two appends of the trace files
+TRACE_EVERY_S = 10.0
+# The engine loop's cumulative ``Stats`` fields a unit's load reports
+ENGINE_STATS = (
+    "host_s",
+    "wait_s",
+    "admit_host_s",
+    "encode_gpu_s",
+    "prefill_gpu_s",
+    "steps",
+    "prefill_forwards",
+    "prefill_tokens",
+)
 
 
 def messages_of(request: dict) -> list[dict]:
@@ -76,6 +92,7 @@ class TokenomosUnit(EngineBase):
         retries: int = 1,
         sampling: dict | None = None,
         chat_kwargs: dict | None = None,
+        trace_dir: str | None = None,
         name: str | None = None,
     ):
         super().__init__(name or "tokenomos")
@@ -96,6 +113,13 @@ class TokenomosUnit(EngineBase):
         self.front: ThreadPoolExecutor | None = None
         self.watch: threading.Thread | None = None
         self.counts = {"items": 0, "ok": 0, "errors": 0, "cancelled": 0, "retries": 0}
+        # ``trace_dir``: every request's stage stamps and the engine loop's iteration records,
+        # appended there every ``TRACE_EVERY_S`` and at stop (``vlm_requests.jsonl``,
+        # ``engine_iters.jsonl``)
+        self.trace_dir = Path(trace_dir) if trace_dir else None
+        self.records: list[dict] = []
+        self.tracer: threading.Thread | None = None
+        self.trace_stop = threading.Event()
 
     # ---- lifecycle -------------------------------------------------------------------------
 
@@ -114,6 +138,16 @@ class TokenomosUnit(EngineBase):
             **self.engine_kw,
         )
         self.cap = int(self.cap or 4 * self.llm.engine.slots)
+        if self.trace_dir is not None:
+            self.trace_dir.mkdir(parents=True, exist_ok=True)
+            for name in ("vlm_requests.jsonl", "engine_iters.jsonl"):
+                (self.trace_dir / name).write_text("", encoding="utf-8")
+            self.llm.engine.trace_on()
+            self.trace_stop.clear()
+            self.tracer = threading.Thread(
+                target=self._trace_loop, args=(self.llm,), name=f"{self.name}-trace", daemon=True
+            )
+            self.tracer.start()
         self.front = ThreadPoolExecutor(4, thread_name_prefix=f"{self.name}-front")
         self.watch = threading.Thread(target=self._watch, name=f"{self.name}-watch", daemon=True)
         self.watch.start()
@@ -139,8 +173,30 @@ class TokenomosUnit(EngineBase):
             return
         llm, self.llm = self.llm, None
         self.front.shutdown(wait=False, cancel_futures=True)
+        if self.tracer is not None:
+            self.trace_stop.set()
+            self.tracer.join()
+            self.tracer = None
         llm.close()
         self._fail_all(UnitError(RuntimeError(f"{self.name} stopped")))
+        if self.trace_dir is not None:
+            self._write_trace(llm)
+
+    def _trace_loop(self, llm: LLM) -> None:
+        while not self.trace_stop.wait(TRACE_EVERY_S):
+            self._write_trace(llm)
+
+    def _write_trace(self, llm: LLM) -> None:
+        """Append the request records and the engine's finished iteration records so far."""
+        with self.lock:
+            records, self.records = self.records, []
+        iters = llm.engine.trace_take()
+        with (self.trace_dir / "vlm_requests.jsonl").open("a", encoding="utf-8") as f:
+            for rec in records:
+                f.write(json.dumps(rec) + "\n")
+        with (self.trace_dir / "engine_iters.jsonl").open("a", encoding="utf-8") as f:
+            for rec in iters:
+                f.write(json.dumps(rec) + "\n")
 
     def ready(self) -> bool:
         return self.llm is not None and self.llm.failure is None
@@ -161,14 +217,34 @@ class TokenomosUnit(EngineBase):
             return max(0, (self.cap or 0) - self.inflight) if self.ready() else 0
 
     def load(self) -> Load:
-        slots = self.llm.engine.slots if self.llm is not None else 0
+        """In-flight requests over the engine's slots; ``extra``: the unit's counts and the
+        engine loop's cumulative stats (host and wait seconds, GPU seconds of image encoding
+        and prefill, decode steps, prefill forwards and tokens)."""
+        llm = self.llm
+        slots = llm.engine.slots if llm is not None else 0
+        engine = {}
+        if llm is not None:
+            e = llm.engine
+            engine = {f"engine_{k}": getattr(e.stats, k) for k in ENGINE_STATS}
+            # gauges: conversations in preparation, requests on the engine's inbox and waiting
+            # list, rows running, free slots and pages
+            engine |= {
+                "engine_prep_pending": llm.prep_pending,
+                "engine_inbox": e.inbox.qsize(),
+                "engine_waiting": len(e.waiting),
+                "engine_running": len(e.running),
+                "engine_free_slots": len(e.free_slots),
+                "engine_free_pages": e.free_pages,
+            }
         with self.lock:
             n = self.inflight
-            return Load(running=min(n, slots), waiting=max(0, n - slots), extra=dict(self.counts))
+            extra = {**self.counts, **engine}
+            return Load(running=min(n, slots), waiting=max(0, n - slots), extra=extra)
 
     def submit(self, work, done):
         ticket = next(self.counter)
         state = {"done": done, "item": work, "cancelled": False, "attempt": 0}
+        state["t"] = {"unit": time.time()}
         with self.lock:
             self.inflight += 1
             self.tickets[ticket] = state
@@ -186,6 +262,7 @@ class TokenomosUnit(EngineBase):
     # ---- the work ------------------------------------------------------------------------------
 
     def _first(self, ticket: int, state: dict) -> None:
+        state["t"]["front"] = time.time()
         try:
             request = state["item"].payload()
             schema = specs.schema(request["schema"]) if request["schema"] else None
@@ -203,12 +280,15 @@ class TokenomosUnit(EngineBase):
             self._answer(ticket, state, ItemError(exc))
 
     def _send(self, ticket: int, state: dict) -> None:
+        state["t"]["send"] = time.time()
         fut = self.llm.submit_chat(state["messages"], state["params"], **self.chat_kwargs)
         fut.add_done_callback(lambda f: self._replied(ticket, state, f))
 
     def _replied(self, ticket: int, state: dict, fut) -> None:
+        state["t"]["replied"] = time.time()
         try:
-            reply = self.llm.output(fut.result()).text
+            state["req"] = fut.result()
+            reply = self.llm.output(state["req"]).text
             if (
                 self.structured == "prompt"
                 and not state["cancelled"]
@@ -226,13 +306,33 @@ class TokenomosUnit(EngineBase):
 
     def _answer(self, ticket: int, state: dict, result) -> None:
         result = Cancelled() if state["cancelled"] else result
+        rec = self._record(state, result) if self.trace_dir is not None else None
         with self.lock:
             if self.tickets.pop(ticket, None) is None:
                 return
             self.inflight -= 1
             key = {Ok: "ok", Cancelled: "cancelled"}.get(type(result), "errors")
             self.counts[key] += 1
+            if rec is not None:
+                self.records.append(rec)
         state["done"](ticket, [result])
+
+    @staticmethod
+    def _record(state: dict, result) -> dict:
+        """One request's trace record: the unit's stamps (``u_*``), the engine request's stamps
+        and sizes, its node, the result kind and attempts."""
+        request, req = state.get("request") or {}, state.get("req")
+        rec = {f"u_{k}": v for k, v in state["t"].items()}
+        rec["u_answer"] = time.time()
+        try:
+            rec["node"] = json.loads(request.get("key", "{}")).get("node")
+        except (TypeError, ValueError):
+            rec["node"] = None
+        rec["result"], rec["attempts"] = type(result).__name__, state["attempt"] + 1
+        if req is not None:
+            rec |= req.times
+            rec["prompt"], rec["new"] = len(req.prompt), len(req.result.tokens)
+        return rec
 
 
 @entry("vlm", "tokenomos", hosted=True)
