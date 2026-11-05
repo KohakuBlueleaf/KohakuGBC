@@ -37,6 +37,8 @@ from kohakugbc_models.detect.sam3.vision import VisionEncoder, linear
 from kohakugbc_models.kernels import fp8
 from kohakugbc_models.kernels.graphs import Graphs
 
+# Text tokens per prompt: Sam3Processor pads every text to this length
+TEXT_TOKENS = 32
 PREFIX = "detector_model."
 OWNED = (
     "vision_encoder.",
@@ -308,9 +310,7 @@ class Sam3Detector:
                 crops = self.encode_pixels(pixels[:n])
             if self.vision_graphs is not None:
                 self.vision_graphs.freeze()
-            tokens = self.processor(text=["object"], return_tensors="pt").to(
-                self.text_device or self.device
-            )
+            tokens = self.tokenize(["object"]).to(self.text_device or self.device)
             ids, mask = tokens["input_ids"], tokens["attention_mask"]
             if self.text_graphs is not None:
                 n = 1 << (self.max_texts.bit_length() - 1)
@@ -389,13 +389,22 @@ class Sam3Detector:
         ).last_hidden_state
         return linear(self.model.text_projection, hidden)
 
+    def tokenize(self, texts: list[str]):
+        """``Sam3Processor``'s text tokens (padded to ``TEXT_TOKENS``), with a longer text cut to
+        that length: the processor pads but never truncates, so one long text breaks its batch."""
+        return self.processor.tokenizer(
+            texts,
+            return_tensors="pt",
+            padding="max_length",
+            max_length=TEXT_TOKENS,
+            truncation=True,
+        )
+
     def encode_texts(self, texts: list[str]) -> None:
         """Encode the texts not cached yet, in one batch, into ``self.texts``."""
         new = [t for t in dict.fromkeys(texts) if t not in self.texts]
         if new:
-            tokens = self.processor(text=new, return_tensors="pt").to(
-                self.text_device or self.device
-            )
+            tokens = self.tokenize(new).to(self.text_device or self.device)
             ids, mask = tokens["input_ids"], tokens["attention_mask"]
             if self.text_graphs is not None:
                 # One graph per power-of-two count: the last text repeated, its rows cut
