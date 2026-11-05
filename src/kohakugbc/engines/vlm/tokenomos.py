@@ -103,11 +103,14 @@ class TokenomosUnit(EngineBase):
         if self.llm is not None:
             return
         arch = models.configure(self.model, **self.arch)
+        # The engine thread serves on a CUDA stream of its own: the card's other engines in this
+        # host (SAM 3, the tagger, the embedder) neither wait behind its work nor drain it
         self.llm = LLM(
             self.model,
             device=self.device,
             arch=arch,
             prep_workers=self.prep_workers,
+            own_stream=True,
             **self.engine_kw,
         )
         self.cap = int(self.cap or 4 * self.llm.engine.slots)
