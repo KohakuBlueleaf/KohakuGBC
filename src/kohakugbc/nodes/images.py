@@ -1,14 +1,21 @@
 """Images and crops.
 
 An image value is ``{"key", "path", "size"}``: light enough to pass between nodes and
-processes. Pixels are decoded where a crop needs them, once per process for the images in use
-(a small LRU), as ml-gbc's ``ImageCache`` (``Image.open(path).convert("RGB")``) decodes them.
+processes. Pixels are decoded where a crop needs them, as ml-gbc's ``ImageCache``
+(``Image.open(path).convert("RGB")``) decodes them, once per machine: the decoded array is
+written to the shared pixel cache (``KOHAKUGBC_PIXEL_CACHE``, default
+``/dev/shm/kohakugbc-pixels`` where ``/dev/shm`` exists; empty: none) as one ``.npy`` per image
+file (keyed by its path, size and modification time), and every process memory-maps it,
+read-only. The cache keeps at most ``KOHAKUGBC_PIXEL_CACHE_IMAGES`` files (2048), the least
+recently written going first. Each process also keeps its last ``CACHE_IMAGES`` arrays.
 """
 
+import hashlib
 import io
 import os
 import threading
 from collections import OrderedDict
+from pathlib import Path
 
 import numpy as np
 from PIL import Image
@@ -16,9 +23,60 @@ from PIL import Image
 from kohakugbc.nodes import boxes as bx
 from kohakugbc.nodes.registry import node
 
-CACHE_IMAGES = 8
+CACHE_IMAGES = 64
 _CACHE: OrderedDict[str, np.ndarray] = OrderedDict()
 _LOCK = threading.Lock()
+_DEFAULT_SHARED = "/dev/shm/kohakugbc-pixels" if os.path.isdir("/dev/shm") else ""
+_SHARED_ROOT = os.environ.get("KOHAKUGBC_PIXEL_CACHE", _DEFAULT_SHARED)
+SHARED = Path(_SHARED_ROOT) if _SHARED_ROOT else None
+SHARED_IMAGES = int(os.environ.get("KOHAKUGBC_PIXEL_CACHE_IMAGES", "2048"))
+# Writes between two evictions of one process
+EVICT_EVERY = 64
+_WRITES = [0]
+
+
+def decode(path: str) -> np.ndarray:
+    with Image.open(path) as img:
+        return np.array(img.convert("RGB"))
+
+
+def _shared(path: str) -> np.ndarray:
+    """The image's decoded array from the shared cache, decoding and writing it when absent."""
+    st = os.stat(path)
+    ident = f"{os.path.abspath(path)}|{st.st_size}|{st.st_mtime_ns}"
+    file = SHARED / f"{hashlib.sha1(ident.encode()).hexdigest()}.npy"
+    try:
+        return np.load(file, mmap_mode="r")
+    except (OSError, ValueError):
+        pass
+    array = decode(path)
+    SHARED.mkdir(parents=True, exist_ok=True)
+    tmp = file.with_name(f"{file.stem}.{os.getpid()}.{threading.get_ident()}.tmp")
+    with open(tmp, "wb") as f:
+        np.save(f, array)
+    os.replace(tmp, file)
+    _WRITES[0] += 1
+    if _WRITES[0] % EVICT_EVERY == 0:
+        _evict()
+    return array
+
+
+def _evict() -> None:
+    """The oldest files past ``SHARED_IMAGES`` leave (a process mapping one keeps its view)."""
+    files = []
+    with os.scandir(SHARED) as it:
+        for e in it:
+            if e.name.endswith(".npy"):
+                try:
+                    files.append((e.stat().st_mtime, e.path))
+                except OSError:
+                    continue
+    files.sort()
+    for _, path in files[: max(0, len(files) - SHARED_IMAGES)]:
+        try:
+            os.unlink(path)
+        except OSError:
+            continue
 
 
 def pixels(path: str) -> np.ndarray:
@@ -26,8 +84,7 @@ def pixels(path: str) -> np.ndarray:
         if path in _CACHE:
             _CACHE.move_to_end(path)
             return _CACHE[path]
-    with Image.open(path) as img:
-        array = np.array(img.convert("RGB"))
+    array = _shared(path) if SHARED is not None else decode(path)
     with _LOCK:
         _CACHE[path] = array
         while len(_CACHE) > CACHE_IMAGES:
