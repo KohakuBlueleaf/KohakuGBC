@@ -20,7 +20,7 @@ from importlib import metadata
 from pathlib import Path
 
 from togeari import no_unit_start
-from togeari.cli.commands.serve import serve_until_signal
+from togeari.cli.commands.serve import add_balancer_args, serve_until_signal
 from togeari.plugins import Inspector
 from togeari.plugins.telemetry import Telemetry
 from togeari.serve import Service
@@ -64,6 +64,9 @@ def serve(args) -> int:
         int(port),
         os.environ.get(args.token_env) if args.token_env else None,
         plugins,
+        balancer=args.balancer,
+        advertise=args.advertise,
+        name=args.name,
     )
     return serve_until_signal(service, sys.stdout)
 
@@ -181,6 +184,7 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--inbox", default="runs/serve/inbox", help="posted pictures")
             p.add_argument("--telemetry", default=None, help="telemetry directory for the dash")
             p.add_argument("--token-env", default=None, help="env variable holding the token")
+            add_balancer_args(p)
         if name == "host":
             p.add_argument("--slot", action="append", choices=registry.SLOTS)
             p.add_argument("--engines-file")
