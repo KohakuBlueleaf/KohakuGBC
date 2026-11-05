@@ -16,7 +16,7 @@ import logging
 import torch
 
 from kohakugbc_models.kernels import tuning
-from kohakugbc_models.kernels.hardware import QUIET, capture_stream
+from kohakugbc_models.kernels.hardware import QUIET, capture_stream, own_workspace
 
 log = logging.getLogger(__name__)
 
@@ -46,8 +46,11 @@ class Graphs:
             torch.cuda.current_stream().wait_stream(side)
             graph = torch.cuda.CUDAGraph()
             # thread_local: other models' threads keep launching on their own streams
-            with torch.cuda.graph(
-                graph, pool=self.pool, stream=side, capture_error_mode="thread_local"
+            with (
+                own_workspace(),
+                torch.cuda.graph(
+                    graph, pool=self.pool, stream=side, capture_error_mode="thread_local"
+                ),
             ):
                 outputs = self.fn(*static)
         return graph, static, outputs

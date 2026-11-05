@@ -36,6 +36,7 @@ from kohakugbc_models.kernels.hardware import (
     cache_dir,
     capture_stream,
     card_key,
+    own_workspace,
     synchronize,
 )
 
@@ -127,7 +128,8 @@ def graph_ms(fn: Callable[[], object], device, calls: int) -> float:
         fn()
     synchronize(device)
     graph = torch.cuda.CUDAGraph()
-    with torch.cuda.graph(graph, stream=capture_stream(device), capture_error_mode="thread_local"):
+    stream = capture_stream(device)
+    with own_workspace(), torch.cuda.graph(graph, stream=stream, capture_error_mode="thread_local"):
         for _ in range(calls):
             fn()
     best = float("inf")

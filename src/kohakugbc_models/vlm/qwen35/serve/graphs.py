@@ -8,6 +8,7 @@ before its capture.
 
 import torch
 
+from kohakugbc_models.kernels.hardware import own_workspace
 from kohakugbc_models.vlm.qwen35.model.forward import Step
 
 
@@ -67,7 +68,7 @@ class DecodeGraphs:
                     self.model.forward(self.ops, self.pools, step)
             torch.cuda.current_stream().wait_stream(stream)
             graph = torch.cuda.CUDAGraph()
-            with torch.cuda.graph(graph, pool=pool, stream=stream):
+            with own_workspace(), torch.cuda.graph(graph, pool=pool, stream=stream):
                 out = self.model.forward(self.ops, self.pools, step)
             self.graphs[b] = (graph, out, step)
         torch.cuda.synchronize(self.ids.device)

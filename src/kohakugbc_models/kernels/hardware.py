@@ -1,6 +1,7 @@
 """The device a kernel runs on: its arch name (the backend priority's key) and its card key
 (the tuning tables' key), and the cache directory."""
 
+import contextlib
 import os
 import re
 import threading
@@ -25,6 +26,21 @@ def capture_stream(device=None) -> "torch.cuda.Stream":
         if index not in _CAPTURE:
             _CAPTURE[index] = torch.cuda.Stream(index)
         return _CAPTURE[index]
+
+
+@contextlib.contextmanager
+def own_workspace():
+    """A CUDA graph capture that owns the cuBLAS workspace it records. PyTorch keeps one
+    workspace per (handle, stream), held only by its own map: a graph records the map's block,
+    and a later capture that drops the map frees it under the graph (its replay then writes to
+    freed memory). Cleared before the capture, the workspace a cuBLAS call needs is allocated in
+    the graph's pool, which the graph keeps; cleared after, no later call reuses that pool block
+    outside it (PyTorch's inductor does the same around its captures)."""
+    torch._C._cuda_clearCublasWorkspaces()
+    try:
+        yield
+    finally:
+        torch._C._cuda_clearCublasWorkspaces()
 
 
 def arch_of(device) -> str:
