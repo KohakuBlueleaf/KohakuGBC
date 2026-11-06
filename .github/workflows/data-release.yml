@@ -86,8 +86,8 @@ jobs:
           - { os: ubuntu-latest, target: x86_64, manylinux: "2_28", test: true }
           - { os: ubuntu-latest, target: aarch64, manylinux: "2_28", test: false }
           - { os: windows-latest, target: x64, manylinux: "", test: true }
-          - { os: macos-14, target: aarch64, manylinux: "", test: true }
-          - { os: macos-14, target: x86_64, manylinux: "", test: false }
+          - { os: macos-15, target: aarch64, manylinux: "", test: true }
+          - { os: macos-15, target: x86_64, manylinux: "", test: false }
     steps:
       - uses: actions/checkout@v4
         with:
