@@ -7,8 +7,10 @@
   element takes the largest of its near-tied boxes; a probe box is kept only where no named
   element is; a region under ``small_area`` of the image is a leaf captioned by its name; a probe
   region is free: described first, outside the node budget, never a leaf.
-- Joins: a region never joins one of its ancestors, and joins a vertex seen before with the same
-  head noun whose box overlaps its own both ways by ``head_overlap``; otherwise GBC's join.
+- Joins: a region never joins one of its ancestors (those its id extends and, through every
+  join recorded on them, the vertices above the regions that joined them), and joins a vertex
+  seen before with the same head noun whose box overlaps its own both ways by
+  ``head_overlap``; otherwise GBC's join.
 """
 
 import re
@@ -219,17 +221,40 @@ def nest_detected(raw: dict, patch, request: dict, parent: dict, entities: list,
 # ---- joins ---------------------------------------------------------------------------------------
 
 
+def ancestors(seen: list, region_id: str) -> set:
+    """Every vertex above a region: the ids its own id extends, and, closed over, the vertices
+    above each region that joined one of them (an entry's ``above``)."""
+    parts = region_id.split("_")
+    out = {"_".join(parts[:k]) for k in range(1, len(parts))}
+    above = {e["vertex"]: e.get("above", ()) for e in seen}
+    todo = list(out)
+    while todo:
+        for a in above.get(todo.pop(), ()):
+            if a not in out:
+                out.add(a)
+                todo.append(a)
+    return out
+
+
+def _joined(seen: list, target: str, over: set) -> list:
+    """``seen`` with the vertices ``over`` the joining region recorded above ``target``."""
+    return [
+        {**e, "above": sorted({*e.get("above", ()), *over})} if e["vertex"] == target else e
+        for e in seen
+    ]
+
+
 @node(outputs=["seen", "is_new", "target"])
 def nest_register(
     seen: list, region: dict, texts: list, vecs: list, controls: dict
 ) -> tuple[list, bool, str | None]:
     """A region joins the best-overlapping vertex seen before (not an ancestor) that shares its
     head noun, its box overlapping the region's both ways by ``head_overlap``; else GBC's
-    ``register`` over the vertices that are not its ancestors."""
-    parts = region["id"].split("_")
-    ancestors = {"_".join(parts[:k]) for k in range(1, len(parts))}
-    mine = [e for e in seen if e["vertex"] not in ancestors]
-    theirs = [e for e in seen if e["vertex"] in ancestors]
+    ``register`` over the vertices that are not its ancestors. A join records the region's
+    ancestors above the vertex it joins, so the graph stays acyclic."""
+    over = ancestors(seen, region["id"])
+    mine = [e for e in seen if e["vertex"] not in over]
+    theirs = [e for e in seen if e["vertex"] in over]
 
     name = head(region["text"])
     best, best_k = 0.0, None
@@ -243,7 +268,8 @@ def nest_register(
             best, best_k = o, k
     if best_k is None:
         out, is_new, target = regions.register(mine, region, texts, vecs, controls)
-        return [*out, *theirs], is_new, target
+        out = [*out, *theirs]
+        return (out, is_new, target) if is_new else (_joined(out, target, over), False, target)
 
     known = dict(zip(texts, vecs))
     e = mine[best_k]
@@ -252,5 +278,6 @@ def nest_register(
         "box": bx.union([e["box"], region["box"]]),
         "texts": [*e["texts"], region["text"]],
         "vecs": [*e["vecs"], known.get(region["text"])],
+        "above": sorted({*e.get("above", ()), *over}),
     }
     return [*mine[:best_k], joined, *mine[best_k + 1 :], *theirs], False, e["vertex"]

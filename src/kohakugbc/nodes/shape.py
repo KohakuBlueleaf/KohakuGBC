@@ -22,6 +22,7 @@ import json
 from PIL import Image, ImageDraw, ImageFont
 
 from kohakugbc.graph.orders import stats
+from kohakugbc.graph.reference import link_and_mask
 from kohakugbc.nodes.images import pixels
 from kohakugbc.nodes.nest import head
 from kohakugbc.nodes.registry import node
@@ -109,15 +110,31 @@ class Graph:
     def unlink(self, p, c) -> None:
         self.kids[p] = [(x, t) for x, t in self.kids[p] if x != c]
 
+    def relations_of(self, k) -> list:
+        """The relation vertices naming ``k`` among their participants."""
+        return [
+            r
+            for r, x in self.v.items()
+            if x["label"] == "relation" and any(c == k for c, _ in self.kids.get(r, []))
+        ]
+
     def drop(self, k) -> None:
+        """``k`` goes, with every relation naming it."""
+        broken = self.relations_of(k)
         for p in list(self.kids):
             self.unlink(p, k)
         self.kids.pop(k, None)
         self.v.pop(k, None)
+        for r in broken:
+            if r in self.v:
+                self.drop(r)
 
     def merge(self, keep, gone) -> None:
         """``gone`` becomes ``keep``: its children, parents and relations move over, the box
-        covers both."""
+        covers both; a relation naming both goes, one naming ``keep`` covers its new box."""
+        for r in self.relations_of(gone):
+            if any(c == keep for c, _ in self.kids[r]):
+                self.drop(r)
         for c, t in self.kids.pop(gone):
             if c != keep:
                 self.link(keep, c, t)
@@ -131,21 +148,23 @@ class Graph:
         for side, f in (("left", min), ("top", min), ("right", max), ("bottom", max)):
             a[side] = f(a[side], b[side])
         self.v.pop(gone)
+        for r in self.relations_of(keep):
+            rb = self.v[r]["bbox"] = dict(self.v[r]["bbox"])
+            for side, f in (("left", min), ("top", min), ("right", max), ("bottom", max)):
+                rb[side] = f(rb[side], a[side])
 
     def dump(self) -> dict:
+        """The graph as GBC JSON; in-edges and masks derived from what is left, as resolution
+        derives them."""
         verts = []
         for k, x in self.v.items():
             x = dict(x)
             x["out_edges"] = [
                 {"source": k, "text": t, "target": c} for c, t in self.kids[k] if c in self.v
             ]
+            x["in_edges"] = []
             verts.append(x)
-        ins: dict = {}
-        for x in verts:
-            for e in x["out_edges"]:
-                ins.setdefault(e["target"], []).append(e)
-        for x in verts:
-            x["in_edges"] = ins.get(x["vertex_id"], [])
+        link_and_mask(verts, self.raw["mask_inside_threshold"])
         return {**self.raw, "vertices": verts}
 
 
@@ -252,9 +271,7 @@ def contain(g: Graph, answers: dict) -> None:
             if len(left) < 2:
                 for c in left:
                     g.link(g.root, c, g.name.get(c, c))
-                g.unlink(g.root, k)
-                g.kids.pop(k)
-                g.v.pop(k)
+                g.drop(k)
             continue
         hs = holders(g, k, tops, answers)
         if hs:

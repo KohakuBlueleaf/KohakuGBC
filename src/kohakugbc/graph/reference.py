@@ -26,8 +26,8 @@ def resolve(
     if not nodes:
         return None
     vertices = [_vertex(node, mapping) for node in nodes.values()]
-    _link_and_mask(vertices, threshold)
-    graph = {"vertices": vertices, "img_url": None, "img_path": img_path}
+    link_and_mask(vertices, threshold)
+    graph ={"vertices": vertices, "img_url": None, "img_path": img_path}
     graph.update(_captions(vertices))
     graph["img_size"] = None if img_size is None else [int(img_size[0]), int(img_size[1])]
     graph["mask_inside_threshold"] = float(threshold)
@@ -192,7 +192,7 @@ def _vertex(node: dict, mapping: dict) -> dict:
 # ---- in-edges and masks (GbcGraphFull.update_edges_and_masks) --------------------------------
 
 
-def _link_and_mask(vertices: list[dict], threshold: float) -> None:
+def link_and_mask(vertices: list[dict], threshold: float) -> None:
     by_id = {v["vertex_id"]: v for v in vertices}
     ordered = sorted(vertices, key=lambda v: v["vertex_id"])
     for v in ordered:
