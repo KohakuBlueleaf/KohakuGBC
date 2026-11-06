@@ -33,16 +33,21 @@ stand alone. The `kohakugbc-data` package writes and reads it (`kohakugbc_data.d
 members and header (checked on 3,000 real images, synthetic JPEG / PNG and a 4.4 GiB zip64
 shard). It is a stored (uncompressed) zip with zip64 end records:
 
-- one member `<key>.<ext>` per image, in sample order (`ext`: jpg, webp, png, jxl, obu);
+- one member `<key>.<ext>` per image, in sample order (`ext`: jpg, webp, png, jxl, obu, avif);
 - the last member `__index__.bin`: `KCIMG1\0\0`, a u64 length, a JSON header (`{"images": n,
   ...}`, sorted, compact; the dataset header is copied in), padding to 8 bytes, then one
   24-byte record per image: absolute offset (u64) and size (u32) of its bytes, stored width
-  and height (u32 each), codec (1 jpeg, 2 av1, 3 jxl, 4 webp, 5 png), color flags, 2 pad
-  bytes.
+  and height (u32 each), codec (1 jpeg, 2 av1, 3 jxl, 4 webp, 5 png, 6 avif), color flags, 2
+  pad bytes.
 
-Images are stored as they were captioned, so the graph's boxes (`[0, 1]` of the image) and
-sizes refer to exactly these pixels. A format KohakuClip does not decode (GIF) is stored as
-lossless PNG of its first frame.
+`av1` is a raw AV1 OBU stream (KohakuClip's own image codec); `avif` is an AVIF file, which
+recent Pillow wheels decode with their built-in libavif (checked: Pillow 13.0 on Linux and
+Windows), without KohakuClip.
+
+Images are stored as they were captioned, or resized from that image without a crop (a
+dataset with several resolution variants); the graph's boxes (`[0, 1]` of the image) refer to
+the image either way, and its `img_size` stays the captioned size. A format KohakuClip does not
+decode (GIF) is stored as lossless PNG of its first frame.
 
 ### Graphs and metadata
 
@@ -157,5 +162,5 @@ with DatasetWriter(root, shard_bytes=4 << 30, header={"name": "my-set"}) as w:
 ```
 
 `add(key, image, w, h, codec, graph, meta=None, **row)`: `image` is already encoded (`codec`
-one of jpeg, webp, png, jxl, av1; w / h its pixel size); `graph` a `GbcGraph`, its JSON line or
+one of jpeg, webp, png, jxl, av1, avif; w / h its pixel size); `graph` a `GbcGraph`, its JSON line or
 its msgpack; `meta` any dict; `row` keywords become manifest columns. Keys must be unique.

@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "kohakugbc-data"
 # The version's one source; Cargo.toml follows it (scripts/ci/version.py)
-version = "0.1.0"
+version = "0.2.0"
 description = "KohakuGBC's data side: GBC graphs (store, resolution, prompt rendering) and the GBC dataset format (KohakuClip image shards, KohakuVault graphs and metadata)"
 authors = [
     { name = "Shih-Ying Yeh(KohakuBlueLeaf)", email = "apolloyeh0123@gmail.com" },

@@ -23,11 +23,18 @@ import numpy as np
 
 INDEX_NAME = "__index__.bin"
 MAGIC = b"KCIMG1\0\0"
-CODECS = {"jpeg": 1, "av1": 2, "jxl": 3, "webp": 4, "png": 5}
-EXTENSIONS = {"jpeg": "jpg", "av1": "obu", "jxl": "jxl", "webp": "webp", "png": "png"}
+CODECS = {"jpeg": 1, "av1": 2, "jxl": 3, "webp": 4, "png": 5, "avif": 6}
+EXTENSIONS = {
+    "jpeg": "jpg",
+    "av1": "obu",
+    "jxl": "jxl",
+    "webp": "webp",
+    "png": "png",
+    "avif": "avif",
+}
 # KohakuClip's color flags per codec: JPEG / AV1 full-range BT.601, WebP limited-range BT.601,
-# JPEG XL / PNG RGB
-COLORS = {"jpeg": 2, "av1": 2, "webp": 0, "jxl": 4, "png": 4}
+# JPEG XL / PNG RGB; AVIF carries its own color description (flags 0)
+COLORS = {"jpeg": 2, "av1": 2, "webp": 0, "jxl": 4, "png": 4, "avif": 0}
 RECORD = np.dtype(
     [
         ("off", "<u8"),

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, features
 
 from kohakugbc_data import GbcGraph
 from kohakugbc_data.dataset import DatasetWriter, GbcDataset, read_info, split
@@ -136,6 +136,33 @@ def test_image_shard_layout(tmp_path):
     shard = ImageShard(path)
     assert [shard.read(i) for i in range(len(shard))] == [r["image"] for r in rows]
     shard.close()
+
+
+@pytest.mark.skipif(not features.check("avif"), reason="Pillow without AVIF")
+def test_avif_member_record_and_pil(tmp_path):
+    rows = samples(0, 3)
+    for r in rows:
+        pixels = np.asarray(Image.open(io.BytesIO(r["image"])).convert("RGB"))
+        buf = io.BytesIO()
+        Image.fromarray(pixels).save(buf, "AVIF", quality=75)
+        r["image"], r["codec"] = buf.getvalue(), "avif"
+    write(tmp_path, rows, per_shard=3)
+    path = tmp_path / "shards" / "shard_00000" / "images.zip"
+    with zipfile.ZipFile(path) as zf:
+        names = [i.filename for i in zf.infolist()]
+        assert names == [f"{r['key']}.avif" for r in rows] + ["__index__.bin"]
+        index = zf.read("__index__.bin")
+    (head_len,) = struct.unpack_from("<Q", index, 8)
+    at = 16 + head_len + (-(16 + head_len) % 8)
+    records = np.frombuffer(index[at:], dtype=RECORD)
+    assert [(int(x["codec"]), int(x["color"])) for x in records] == [(6, 0)] * 3
+
+    ds = GbcDataset(tmp_path, image="pil")
+    for r in rows:
+        s = ds[r["key"]]
+        assert s.codec == "avif" and s.image.mode == "RGB" and s.image.size == (r["w"], r["h"])
+    raw = GbcDataset(tmp_path)
+    assert [raw[r["key"]].image for r in rows] == [r["image"] for r in rows]
 
 
 def test_split_select_transform_pickle(tmp_path):

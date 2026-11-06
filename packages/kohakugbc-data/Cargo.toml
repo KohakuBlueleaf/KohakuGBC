@@ -1,7 +1,7 @@
 [package]
 name = "kohakugbc-data"
 # Follows [project] version in pyproject.toml (scripts/ci/version.py stamps both)
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "The native part of kohakugbc-data: GBC graph resolution, storage and prompts"
 license = "Apache-2.0"

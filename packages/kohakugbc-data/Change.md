@@ -1,5 +1,12 @@
 # kohakugbc-data changes
 
+## 2026-11-06 update to 0.2.0
+
+- `kohakugbc_data.dataset`: an `avif` image codec (member `<key>.avif`, index codec 6, color
+  flags 0). An AVIF file decodes with Pillow's built-in libavif on every platform, so
+  `GbcDataset(image="pil")` reads such shards without KohakuClip. The format guide states that a
+  dataset may store resized variants of the captioned image (boxes are fractions of the image).
+
 ## 2026-10-28 update to 0.1.0
 
 The first release: KohakuGBC's data side as its own package.
