@@ -538,7 +538,7 @@ tests/                data and format checks: program, graph, engines; fixtures:
 | Where | Read it for |
 |---|---|
 | [docs/concepts](docs/concepts/README.md) | what a GBC graph is, the program, the machine, the engines |
-| [docs/guides](docs/guides/README.md) | configuring every engine entry, running on one GPU, over an API, on other nodes |
+| [docs/guides](docs/guides/README.md) | configuring every engine entry, running on one GPU, over an API, on other nodes; scoring predicted graphs |
 | [docs/internals](docs/internals/README.md) | the machine, the placement plan, engines on other nodes, the program and its differences from the PoC, traces, graph resolution |
 | [docs/performance](docs/performance/README.md) | the machine on pseudo engines, on real engines, the VLM engines alone, the detector and the embedder on six GPUs and the CPU |
 | [docs/internals/kernels.md](docs/internals/kernels.md) | the kernel package: registry, tuning, graphs, fp8, every op per arch |

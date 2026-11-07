@@ -7,6 +7,7 @@ Layers, by what they may import (``scripts/check_imports.py``):
 - ``kohakugbc.machine``, ``kohakugbc.io``: the program on Togeari (bindings, lanes, policies,
   sources, sinks).
 - ``kohakugbc.engines``: the engines that fill Togeari's contracts (VLM, torch, remote, replay).
+- ``kohakugbc.eval``: scores of predicted graphs against the ground truth (numpy, scipy only).
 """
 
 from importlib.metadata import PackageNotFoundError, version
